@@ -25,4 +25,5 @@ jobs:
           git config user.email "cine-bot@users.noreply.github.com"
           git add data/seances.json
           git diff --cached --quiet || git commit -m "Séances du $(date +%F)"
+          git pull --rebase -X theirs || true
           git push
