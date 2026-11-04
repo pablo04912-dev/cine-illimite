@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0E0E10">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Ciné">
+<title>Ciné Illimité</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<main id="app">
+  <section id="view-seances" class="view active" aria-labelledby="t-seances">
+    <header class="top">
+      <div>
+        <span class="kicker" id="now-label"></span>
+        <h1 id="t-seances">Près de toi</h1>
+      </div>
+      <button class="round" id="btn-locate" aria-label="Me géolocaliser">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/><circle cx="12" cy="12" r="8"/></svg>
+      </button>
+    </header>
+    <div class="pad">
+      <div class="loc">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 21s-7-6.2-7-11a7 7 0 0 1 14 0c0 4.8-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/></svg>
+        <span id="loc-label">Paris 12e</span>
+        <label class="sr" for="radius">Rayon</label>
+        <select id="radius">
+          <option value="1.5">1,5 km</option>
+          <option value="3" selected>3 km</option>
+          <option value="5">5 km</option>
+          <option value="50">Tout Paris</option>
+        </select>
+      </div>
+      <div class="chips" id="chips" role="group" aria-label="Filtres">
+        <button data-f="soon" aria-pressed="true">Dans l'heure</button>
+        <button data-f="today" aria-pressed="false">Aujourd'hui</button>
+        <button data-f="tonight" aria-pressed="false">Ce soir</button>
+        <button data-f="tomorrow" aria-pressed="false">Demain</button>
+        <button data-f="vo" aria-pressed="false">VO</button>
+        <button data-f="list" aria-pressed="false">Ma liste</button>
+        <button data-f="premium" aria-pressed="false">Dolby / IMAX</button>
+      </div>
+      <p class="note"><span class="dot"></span>Salles qui acceptent la carte UGC Illimité</p>
+    </div>
+    <div class="pad list" id="seances-list"></div>
+  </section>
+
+  <section id="view-pourtoi" class="view" aria-labelledby="t-pourtoi">
+    <header class="top"><div><span class="kicker" id="pt-kicker">Selon tes goûts</span><h1 id="t-pourtoi">Pour toi</h1></div></header>
+    <div class="pad stack" id="pourtoi"></div>
+  </section>
+
+  <section id="view-journal" class="view" aria-labelledby="t-journal">
+    <header class="top"><div><span class="kicker" id="j-kicker"></span><h1 id="t-journal">Journal</h1></div></header>
+    <div class="pad stack" id="journal"></div>
+  </section>
+
+  <footer class="credits">Séances : AlloCiné · Bandes-annonces : TMDB. <span id="updated"></span><br>This product uses the TMDB API but is not endorsed or certified by TMDB.</footer>
+</main>
+
+<nav class="tabs" aria-label="Navigation principale">
+  <button data-v="seances" class="on"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 9h18M8 5v4M16 5v4"/></svg>Séances</button>
+  <button data-v="pourtoi"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 3l2.6 5.6 6 .7-4.5 4.1 1.2 6L12 16.4 6.7 19.4l1.2-6L3.4 9.3l6-.7z"/></svg>Pour toi</button>
+  <button data-v="journal"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M5 4h11a3 3 0 0 1 3 3v13H8a3 3 0 0 1-3-3z"/><path d="M9 8h6M9 12h6"/></svg>Journal</button>
+</nav>
+
+<dialog id="sheet" aria-labelledby="f-title">
+  <div id="sheet-body"></div>
+</dialog>
+
+<script src="app.js"></script>
+</body>
+</html>

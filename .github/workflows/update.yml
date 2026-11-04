@@ -1,0 +1,27 @@
+name: Mise à jour des séances
+on:
+  schedule:
+    - cron: '17 3 * * *'   # chaque nuit vers 4h-5h (heure de Paris)
+    - cron: '17 11 * * 3'  # le mercredi midi, jour des sorties
+  workflow_dispatch: {}
+permissions:
+  contents: write
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: node scripts/fetch.mjs
+        env:
+          TMDB_TOKEN: ${{ secrets.TMDB_TOKEN }}
+          LETTERBOXD_USER: ${{ vars.LETTERBOXD_USER }}
+      - name: Enregistrer les nouvelles séances
+        run: |
+          git config user.name "cine-bot"
+          git config user.email "cine-bot@users.noreply.github.com"
+          git add data/seances.json
+          git diff --cached --quiet || git commit -m "Séances du $(date +%F)"
+          git push

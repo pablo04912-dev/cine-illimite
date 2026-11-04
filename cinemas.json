@@ -1,0 +1,14 @@
+[
+  { "id": "C0146", "name": "UGC Lyon Bastille", "address": "12 rue de Lyon, 75012", "lat": 48.8478, "lng": 2.3727 },
+  { "id": "C0026", "name": "UGC Ciné Cité Bercy", "address": "2 cour Saint-Émilion, 75012", "lat": 48.8327, "lng": 2.3866 },
+  { "id": "C0144", "name": "MK2 Nation", "address": "133 bd Diderot, 75012", "lat": 48.8476, "lng": 2.3935 },
+  { "id": "C2954", "name": "MK2 Bibliothèque", "address": "128 av de France, 75013", "lat": 48.8323, "lng": 2.3760 },
+  { "id": "C0140", "name": "MK2 Bastille (Beaumarchais)", "address": "4 bd Beaumarchais, 75011", "lat": 48.8537, "lng": 2.3687 },
+  { "id": "C0192", "name": "MK2 Gambetta", "address": "6 rue Belgrand, 75020", "lat": 48.8649, "lng": 2.3986 },
+  { "id": "C0150", "name": "UGC Gobelins", "address": "66 bis av des Gobelins, 75013", "lat": 48.8335, "lng": 2.3523 },
+  { "id": "C0050", "name": "MK2 Beaubourg", "address": "50 rue Rambuteau, 75003", "lat": 48.8618, "lng": 2.3526 },
+  { "id": "C0159", "name": "UGC Ciné Cité Les Halles", "address": "7 place de la Rotonde, 75001", "lat": 48.8617, "lng": 2.3464 },
+  { "id": "C0103", "name": "UGC Montparnasse", "address": "83 bd du Montparnasse, 75006", "lat": 48.8436, "lng": 2.3256 },
+  { "id": "C0003", "name": "MK2 Quai de Seine", "address": "14 quai de la Seine, 75019", "lat": 48.8853, "lng": 2.3712 },
+  { "id": "C1621", "name": "MK2 Quai de Loire", "address": "7 quai de la Loire, 75019", "lat": 48.8847, "lng": 2.3700 }
+]
