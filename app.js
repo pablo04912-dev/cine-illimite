@@ -24,7 +24,8 @@ const S = {
   liste: new Set(store.get('liste', [])),
   vus: store.get('vus2', []),
   carte: Object.assign({ formule: 'duo', prix: 39.9, partage: 2, plein: 14.9 }, store.get('carte', {})),
-  theme: store.get('theme', 'light')
+  theme: store.get('theme', 'light'),
+  pins: store.get('pins', ['C0065']) // Grand Rex épinglé par défaut
 };
 const $ = (s, el = document) => el.querySelector(s);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -482,6 +483,17 @@ function renderSearch() {
 }
 function closeSearch() { $('#q-results').hidden = true; }
 
+// ================= salles épinglées =================
+function renderPins() {
+  const nowMs = Date.now() - 5 * 60000; const d0 = today();
+  $('#pins').innerHTML = S.pins.map((id) => cinema(id)).filter(Boolean).map((c) => {
+    const n = S.data.seances.filter((s) => s.c === c.id && s.t.startsWith(d0) && asDate(s.t).getTime() > nowMs).length;
+    return `<button class="pin" data-cine="${c.id}"><span class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 3l2.6 5.6 6 .7-4.5 4.1 1.2 6L12 16.4 6.7 19.4l1.2-6L3.4 9.3l6-.7z"/></svg></span>
+      <span><b>${esc(c.name)}</b><small>${n ? n + ' séance' + (n > 1 ? 's' : '') + " aujourd'hui" : 'Programme de la semaine'} · ${fmtDist(c.km)}</small></span></button>`;
+  }).join('');
+  $('#pins').hidden = !S.pins.length;
+}
+
 // ================= fiche salle =================
 function openCinema(cid) {
   const c = cinema(cid); if (!c) return;
@@ -502,6 +514,7 @@ function openCinema(cid) {
       <button class="back" id="close" aria-label="Fermer"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg></button>
       <h2 id="f-title">${esc(c.name)}</h2>
       <p>${esc(c.cp)} Paris · ${fmtDist(c.km)} · ${trajet(c.km)}${isIndie(c) ? ' · salle indé' : ''}${c.extra ? ' · supplément ' + esc(c.extra) : ''}</p>
+      <button class="pin-toggle" id="pin-toggle" aria-pressed="${S.pins.includes(cid)}">${S.pins.includes(cid) ? '★ Dans mes salles' : '☆ Épingler en haut de l\'accueil'}</button>
     </div>
     <div class="sheet-body">
       <div class="days" role="group" aria-label="Jour">${days.map((d) => `<button data-day="${d}" aria-pressed="${d === cur}">${dayLabel(d)}</button>`).join('')}</div>
@@ -522,6 +535,10 @@ function openCinema(cid) {
     $('#close', root).onclick = () => dlg.close();
     root.querySelectorAll('.days button').forEach((b) => (b.onclick = () => { cur = b.dataset.day; paint(); }));
     root.querySelectorAll('[data-cf]').forEach((b) => (b.onclick = () => { vo = !vo; paint(); }));
+    $('#pin-toggle', root).onclick = () => {
+      S.pins = S.pins.includes(cid) ? S.pins.filter((x) => x !== cid) : [...S.pins, cid];
+      store.set('pins', S.pins); renderPins(); paint();
+    };
     root.querySelectorAll('[data-from]').forEach((b) => (b.onclick = () => { from = b.dataset.from; paint(); }));
     root.querySelectorAll('.crow').forEach((b) => (b.onclick = () => openFilm(b.dataset.film, b.dataset.day)));
   };
@@ -584,7 +601,7 @@ function locate(silent) {
 function computeDistances() { for (const c of S.data.cinemas) c.km = distKm(S.pos, c); }
 
 // ================= événements =================
-function renderAll() { renderSeances(); renderPourToi(); renderHisto(); renderCarte(); }
+function renderAll() { renderPins(); renderSeances(); renderPourToi(); renderHisto(); renderCarte(); }
 document.addEventListener('click', (e) => {
   const film = e.target.closest('[data-film]');
   if (film && !e.target.closest('dialog')) { openFilm(film.dataset.film, film.dataset.day); return; }
