@@ -57,6 +57,7 @@ function trajet(km) {
 function dansLabel(t) {
   const m = minutesUntil(t);
   if (m < 0) return 'a commencé';
+  if (m === 0) return 'maintenant';
   if (m < 60) return `dans ${m} min`;
   const d = t.slice(0, 10);
   if (d === today()) return `dans ${Math.floor(m / 60)} h ${String(m % 60).padStart(2, '0')}`;
@@ -266,6 +267,7 @@ function starsHtml(i, r) {
 function renderHisto() {
   const el = $('#histo');
   let html = '';
+  html += S.showAdd ? addFormHtml() : `<button class="btn pri" id="add-open" style="align-self:flex-start">+ Ajouter une séance passée</button>`;
   if (!S.vus.length) {
     html += `<div class="card dark"><h2 style="color:var(--acc)">Rien pour l'instant</h2><p class="syn" style="color:var(--dark-mut);margin-top:8px">Dans la fiche d'un film, touche « Je l'ai vu » : il arrive ici, tu peux le noter, écrire ton avis et l'envoyer sur Letterboxd.</p></div>`;
   } else {
@@ -382,6 +384,7 @@ function reviewsHtml(f, kind) {
 function openFilm(id, day) {
   const f = S.data.films[id]; if (!f) return;
   f._id = id;
+  closeSearch();
   const all = S.data.seances.filter((s) => s.f === id && cinema(s.c));
   const days = [...new Set(all.map((s) => s.t.slice(0, 10)))].filter((d) => d >= today()).sort();
   let cur = day && days.includes(day) ? day : days[0];
@@ -457,6 +460,101 @@ function openFilm(id, day) {
   dlg.scrollTop = 0;
 }
 
+// ================= recherche (films + salles) =================
+const norm = (s) => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim();
+function renderSearch() {
+  const q = norm($('#q').value);
+  const box = $('#q-results');
+  if (q.length < 2) { box.hidden = true; box.innerHTML = ''; return; }
+  const words = q.split(' ');
+  const hit = (s) => { const n = norm(s); return words.every((w) => n.includes(w)); };
+  const cines = S.data.cinemas.filter((c) => hit(c.name + ' ' + c.cp)).sort((a, b) => a.km - b.km).slice(0, 6);
+  const nowMs = Date.now() - 5 * 60000;
+  const films = Object.entries(S.data.films)
+    .filter(([id, f]) => hit(f.title + ' ' + (f.originalTitle || '') + ' ' + (f.director || '')))
+    .map(([id, f]) => ({ id, f, next: S.data.seances.filter((s) => s.f === id && asDate(s.t).getTime() > nowMs).sort((a, b) => cinema(a.c).km - cinema(b.c).km)[0] }))
+    .filter((x) => x.next).slice(0, 8);
+  let html = '';
+  if (cines.length) html += '<h3>Salles</h3>' + cines.map((c) => `<button class="res" data-cine="${c.id}"><span class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 9h18"/></svg></span><span><b>${esc(c.name)}</b><small>${fmtDist(c.km)} · ${esc(c.cp)}${isIndie(c) ? ' · salle indé' : ''}</small></span></button>`).join('');
+  if (films.length) html += '<h3>Films</h3>' + films.map(({ id, f, next }) => `<button class="res" data-film="${id}" data-day="${next.t.slice(0, 10)}"><i style="${bg(f.poster)}"></i><span><b>${esc(f.title)}</b><small>${quand(next.t)} · ${esc(shortName(cinema(next.c)))}</small></span></button>`).join('');
+  box.innerHTML = html || `<p class="res-empty">Rien trouvé pour « ${esc($('#q').value)} » dans les salles qui acceptent ta carte.</p>`;
+  box.hidden = false;
+}
+function closeSearch() { $('#q-results').hidden = true; }
+
+// ================= fiche salle =================
+function openCinema(cid) {
+  const c = cinema(cid); if (!c) return;
+  closeSearch();
+  const all = S.data.seances.filter((s) => s.c === cid);
+  const days = [...new Set(all.map((s) => s.t.slice(0, 10)))].filter((d) => d >= today()).sort();
+  let cur = days[0];
+  let vo = false; let from = '00:00';
+  const dayLabel = (d) => d === today() ? "Aujourd'hui" : d === tomorrow() ? 'Demain' : new Date(d).toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric' });
+  function body() {
+    const nowMs = Date.now() - 5 * 60000;
+    const list = all.filter((s) => s.t.startsWith(cur) && s.t.slice(11, 16) >= from && asDate(s.t).getTime() > nowMs && (!vo || s.v === 'VOST'));
+    const byF = {};
+    for (const s of list) (byF[s.f] ||= []).push(s);
+    const ids = Object.keys(byF).sort((a, b) => byF[a][0].t.localeCompare(byF[b][0].t));
+    return `
+    <div class="chero">
+      <button class="back" id="close" aria-label="Fermer"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg></button>
+      <h2 id="f-title">${esc(c.name)}</h2>
+      <p>${esc(c.cp)} Paris · ${fmtDist(c.km)} · ${trajet(c.km)}${isIndie(c) ? ' · salle indé' : ''}${c.extra ? ' · supplément ' + esc(c.extra) : ''}</p>
+    </div>
+    <div class="sheet-body">
+      <div class="days" role="group" aria-label="Jour">${days.map((d) => `<button data-day="${d}" aria-pressed="${d === cur}">${dayLabel(d)}</button>`).join('')}</div>
+      <div class="chips" style="margin-top:0" role="group" aria-label="Filtres de la salle">
+        <button data-cf="vo" aria-pressed="${vo}">VO</button>
+        ${['00:00', '18:00', '20:00'].map((t) => `<button data-from="${t}" aria-pressed="${from === t}">${t === '00:00' ? 'Toute la journée' : 'Dès ' + t.replace(':', 'h')}</button>`).join('')}
+      </div>
+      ${ids.length ? ids.map((id) => { const f = S.data.films[id]; return `<button class="crow" data-film="${id}" data-day="${cur}">
+        <i style="${bg(f.poster)}"></i>
+        <div class="body"><span class="t">${esc(f.title)}</span><span class="m" style="font-size:12px;color:var(--mut)">${esc([f.runtime, (f.genres || [])[0]].filter(Boolean).join(' · '))}${f.press ? ' · presse ' + f.press : ''}</span>
+        <div class="times">${byF[id].map((s) => `<span>${hm(s.t)} <small>${s.v}</small></span>`).join('')}</div></div>
+      </button>`; }).join('') : '<p class="empty">Plus de séance avec ces filtres ce jour-là.</p>'}
+    </div>`;
+  }
+  const dlg = $('#sheet'); const root = $('#sheet-body');
+  const paint = () => {
+    root.innerHTML = body();
+    $('#close', root).onclick = () => dlg.close();
+    root.querySelectorAll('.days button').forEach((b) => (b.onclick = () => { cur = b.dataset.day; paint(); }));
+    root.querySelectorAll('[data-cf]').forEach((b) => (b.onclick = () => { vo = !vo; paint(); }));
+    root.querySelectorAll('[data-from]').forEach((b) => (b.onclick = () => { from = b.dataset.from; paint(); }));
+    root.querySelectorAll('.crow').forEach((b) => (b.onclick = () => openFilm(b.dataset.film, b.dataset.day)));
+  };
+  paint();
+  if (!dlg.open) dlg.showModal();
+  dlg.scrollTop = 0;
+}
+
+// ================= ajout manuel à l'historique =================
+function addFormHtml() {
+  const titles = [...new Set(Object.values(S.data.films).map((f) => f.title))].sort((a, b) => a.localeCompare(b, 'fr'));
+  const cines = S.data.cinemas.slice().sort((a, b) => a.name.localeCompare(b.name, 'fr'));
+  return `<div class="card addform" id="addform">
+    <h2>Ajouter une séance</h2>
+    <label>Film <input id="add-title" list="add-films" placeholder="Titre du film" autocomplete="off"></label>
+    <datalist id="add-films">${titles.map((t) => `<option value="${esc(t)}"></option>`).join('')}</datalist>
+    <label>Date <input id="add-date" type="date" value="${today()}" max="${today()}"></label>
+    <label>Salle <select id="add-cine"><option value="">Je ne sais plus</option>${cines.map((c) => `<option value="${esc(c.name)}">${esc(c.name)}</option>`).join('')}<option value="Autre salle">Autre salle</option></select></label>
+    <div class="row-actions"><button class="btn pri" id="add-ok">Ajouter</button><button class="btn" id="add-cancel">Annuler</button></div>
+  </div>`;
+}
+function addManual() {
+  const title = $('#add-title').value.trim();
+  const date = $('#add-date').value || today();
+  if (!title) { toast('Indique le titre du film'); return; }
+  const entry = Object.entries(S.data.films).find(([, f]) => norm(f.title) === norm(title));
+  const f = entry ? entry[1] : null;
+  S.vus.push({ f: entry ? entry[0] : null, title: f ? f.title : title, poster: f ? f.poster : null, date, cinema: $('#add-cine').value, rating: 0, review: '' });
+  S.vus.sort((a, b) => a.date.localeCompare(b.date));
+  store.set('vus2', S.vus); S.showAdd = false;
+  renderHisto(); renderCarte(); toast('Séance ajoutée');
+}
+
 // ================= géolocalisation =================
 function setLoc(label, sub) { $('#loc-label').textContent = label; $('#loc-sub').textContent = sub; }
 function locate(silent) {
@@ -501,6 +599,12 @@ document.addEventListener('click', (e) => {
   const lb = e.target.closest('[data-lb]');
   if (lb) { letterboxdPublish(+lb.dataset.lb); return; }
   if (e.target.closest('#export-lb')) { exportLetterboxd(); return; }
+  if (e.target.closest('#add-open')) { S.showAdd = true; renderHisto(); $('#add-title').focus(); return; }
+  if (e.target.closest('#add-cancel')) { S.showAdd = false; renderHisto(); return; }
+  if (e.target.closest('#add-ok')) { addManual(); return; }
+  const cineBtn = e.target.closest('[data-cine]');
+  if (cineBtn) { openCinema(cineBtn.dataset.cine); return; }
+  if (!e.target.closest('.search')) closeSearch();
   const part = e.target.closest('[data-part]');
   if (part) { S.carte.partage = +part.dataset.part; store.set('carte', S.carte); renderCarte(); return; }
   const th = e.target.closest('[data-theme-set]');
@@ -534,6 +638,9 @@ $('#from-picker').addEventListener('click', (e) => {
 });
 $('#radius').addEventListener('change', (e) => { S.radius = +e.target.value; S.limit = 30; renderAll(); });
 $('#btn-locate').addEventListener('click', () => locate(false));
+$('#q').addEventListener('input', () => { if (S.data) renderSearch(); });
+$('#q').addEventListener('focus', () => { if (S.data) renderSearch(); });
+$('#q').addEventListener('keydown', (e) => { if (e.key === 'Escape') { $('#q').value = ''; closeSearch(); } });
 document.querySelectorAll('.tabs button').forEach((b) => b.addEventListener('click', () => {
   document.querySelectorAll('.tabs button').forEach((x) => x.classList.toggle('on', x === b));
   document.querySelectorAll('.view').forEach((v) => v.classList.toggle('active', v.id === 'view-' + b.dataset.v));
