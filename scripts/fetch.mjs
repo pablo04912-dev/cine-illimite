@@ -17,17 +17,19 @@ const root = new URL('..', import.meta.url);
 
 // Requête polie : pause entre chaque appel AlloCiné, et longue attente si le site dit « trop de requêtes » (429)
 let lastAllo = 0;
-async function politeFetch(url, opts) {
+let blocked = false; // AlloCiné nous a demandé de ralentir : on arrête les pages d'avis pour cette fois
+async function politeFetch(url, opts, { tries = 6, gap = 700 } = {}) {
   const isAllo = url.includes('allocine.fr');
-  for (let i = 0; i < 6; i++) {
+  for (let i = 0; i < tries; i++) {
     if (isAllo) {
-      const wait = lastAllo + 700 - Date.now();
+      const wait = lastAllo + gap - Date.now();
       if (wait > 0) await sleep(wait);
       lastAllo = Date.now();
     }
     try {
       const r = await fetch(url, opts);
       if (r.status === 429 || r.status >= 500) {
+        if (tries === 1) { blocked = r.status === 429; return null; }
         const pause = Math.min(120, 15 * 2 ** i);
         console.warn(`HTTP ${r.status} ${url} : pause ${pause}s`);
         await sleep(pause * 1000);
@@ -133,7 +135,7 @@ async function fetchShowtimes(cinemas) {
 // Avis AlloCiné : la critique presse la plus enthousiaste et la plus sévère,
 // idem pour les spectateurs (première page). Extraits courts + lien vers la page.
 async function getHtml(url) {
-  const r = await politeFetch(url, { headers: { 'User-Agent': UA, Accept: 'text/html' } });
+  const r = await politeFetch(url, { headers: { 'User-Agent': UA, Accept: 'text/html' } }, { tries: 1, gap: 2500 });
   if (!r || !r.ok) return null;
   try { return await r.text(); } catch { return null; }
 }
@@ -151,10 +153,17 @@ function pickExtremes(list) {
   const worst = sorted[sorted.length - 1];
   return worst !== best && worst.note < best.note ? { pos: best, neg: worst } : { pos: best };
 }
-async function enrichReviews(films) {
-  for (const [id, f] of Object.entries(films)) {
-    if (f.reviewsAt) continue;
-    f.reviewsAt = Date.now();
+// Les avis sont récupérés petit à petit (MAX_REVIEWS films par passage, les plus programmés d'abord)
+// pour ne pas se faire bloquer : au bout de quelques nuits, tous les films sont couverts.
+async function enrichReviews(films, seances) {
+  const MAX = Number(process.env.MAX_REVIEWS || 70);
+  const count = {};
+  for (const s of seances) count[s.f] = (count[s.f] || 0) + 1;
+  const todo = Object.entries(films).filter(([, f]) => !f.reviewsAt).sort((a, b) => (count[b[0]] || 0) - (count[a[0]] || 0)).slice(0, MAX);
+  let done = 0;
+  for (const [id, f] of todo) {
+    if (blocked) { console.log(`AlloCiné demande de ralentir : avis arrêtés après ${done} films, la suite au prochain passage.`); break; }
+    done++;
     const base = `https://www.allocine.fr/film/fichefilm-${id}/critiques`;
     const ph = await getHtml(`${base}/presse/`);
     if (ph) {
@@ -177,7 +186,7 @@ async function enrichReviews(films) {
       }));
       f.userReviews = pickExtremes(users);
     }
-    await sleep(250);
+    if (!blocked && ph && sh) f.reviewsAt = Date.now();
   }
 }
 
@@ -267,7 +276,7 @@ let previous = {};
 try { previous = JSON.parse(await readFile(new URL('data/seances.json', root), 'utf8')).films || {}; } catch { /* premier lancement */ }
 const { films, seances } = await fetchShowtimes(cinemas);
 // on réutilise ce qu'on connaît déjà (bandes-annonces, avis) pour ne pas tout redemander chaque nuit
-const FRESH = 4 * 86400000;
+const FRESH = 14 * 86400000;
 for (const [id, f] of Object.entries(films)) {
   const p = previous[id]; if (!p) continue;
   if (p.tmdbChecked) Object.assign(f, { tmdbId: p.tmdbId, tmdbGenres: p.tmdbGenres, trailer: p.trailer, tmdbChecked: true, poster: f.poster || p.poster });
@@ -279,7 +288,7 @@ if (!seances.length) {
   process.exit(1);
 }
 await enrichTmdb(films);
-await enrichReviews(films);
+await enrichReviews(films, seances);
 const journal = await fetchLetterboxd();
 await mkdir(new URL('data/', root), { recursive: true });
 await writeFile(
