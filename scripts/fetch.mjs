@@ -2,6 +2,7 @@
 // ajoute les bandes-annonces TMDB et le journal Letterboxd, et écrit data/seances.json.
 // Usage : TMDB_TOKEN=... LETTERBOXD_USER=... node scripts/fetch.mjs
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
+import { parse } from 'node-html-parser';
 
 const DAYS = Number(process.env.DAYS || 7);
 let TMDB_TOKEN = process.env.TMDB_TOKEN || '';
@@ -14,19 +15,36 @@ const UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const root = new URL('..', import.meta.url);
 
-async function getJson(url, headers = {}) {
-  for (let i = 0; i < 3; i++) {
+// Requête polie : pause entre chaque appel AlloCiné, et longue attente si le site dit « trop de requêtes » (429)
+let lastAllo = 0;
+async function politeFetch(url, opts) {
+  const isAllo = url.includes('allocine.fr');
+  for (let i = 0; i < 6; i++) {
+    if (isAllo) {
+      const wait = lastAllo + 700 - Date.now();
+      if (wait > 0) await sleep(wait);
+      lastAllo = Date.now();
+    }
     try {
-      const r = await fetch(url, { headers: { 'User-Agent': UA, Accept: 'application/json', ...headers } });
-      if (r.ok) return await r.json();
-      if (r.status === 404) return null;
-      console.warn(`HTTP ${r.status} ${url}`);
+      const r = await fetch(url, opts);
+      if (r.status === 429 || r.status >= 500) {
+        const pause = Math.min(120, 15 * 2 ** i);
+        console.warn(`HTTP ${r.status} ${url} : pause ${pause}s`);
+        await sleep(pause * 1000);
+        continue;
+      }
+      return r;
     } catch (e) {
       console.warn(`Erreur ${url}: ${e.message}`);
+      await sleep(3000 * (i + 1));
     }
-    await sleep(1500 * (i + 1));
   }
   return null;
+}
+async function getJson(url, headers = {}) {
+  const r = await politeFetch(url, { headers: { 'User-Agent': UA, Accept: 'application/json', ...headers } });
+  if (!r || !r.ok) return null;
+  try { return await r.json(); } catch { return null; }
 }
 
 function parisDate(offsetDays) {
@@ -112,6 +130,57 @@ async function fetchShowtimes(cinemas) {
   return { films, seances };
 }
 
+// Avis AlloCiné : la critique presse la plus enthousiaste et la plus sévère,
+// idem pour les spectateurs (première page). Extraits courts + lien vers la page.
+async function getHtml(url) {
+  const r = await politeFetch(url, { headers: { 'User-Agent': UA, Accept: 'text/html' } });
+  if (!r || !r.ok) return null;
+  try { return await r.text(); } catch { return null; }
+}
+const clean = (s) => (s || '').replace(/\s+/g, ' ').trim();
+const cut = (s, n = 320) => (s.length > n ? s.slice(0, n).replace(/\s+\S*$/, '') + '…' : s);
+const noteOf = (el) => {
+  const m = el?.querySelector('.rating-mdl')?.getAttribute('class')?.match(/\bn(\d+)\b/);
+  return m ? Number(m[1]) / 10 : null;
+};
+function pickExtremes(list) {
+  const rated = list.filter((x) => x.note != null && x.text);
+  if (!rated.length) return {};
+  const sorted = rated.slice().sort((a, b) => b.note - a.note);
+  const best = sorted[0];
+  const worst = sorted[sorted.length - 1];
+  return worst !== best && worst.note < best.note ? { pos: best, neg: worst } : { pos: best };
+}
+async function enrichReviews(films) {
+  for (const [id, f] of Object.entries(films)) {
+    if (f.reviewsAt) continue;
+    f.reviewsAt = Date.now();
+    const base = `https://www.allocine.fr/film/fichefilm-${id}/critiques`;
+    const ph = await getHtml(`${base}/presse/`);
+    if (ph) {
+      const root = parse(ph);
+      const press = root.querySelectorAll('.reviews-press-comment .item').map((el) => ({
+        who: clean(el.querySelector('.title')?.text),
+        note: noteOf(el),
+        text: cut(clean(el.querySelector('.text')?.text))
+      }));
+      f.pressReviews = pickExtremes(press);
+    }
+    await sleep(250);
+    const sh = await getHtml(`${base}/spectateurs/`);
+    if (sh) {
+      const root = parse(sh);
+      const users = root.querySelectorAll('.review-card').map((el) => ({
+        who: clean(el.querySelector('.meta-title')?.text),
+        note: Number((clean(el.querySelector('.stareval-note')?.text) || '').replace(',', '.')) || null,
+        text: cut(clean(el.querySelector('.content-txt')?.text))
+      }));
+      f.userReviews = pickExtremes(users);
+    }
+    await sleep(250);
+  }
+}
+
 const tmdb = (path) =>
   getJson(`https://api.themoviedb.org/3${path}`, { Authorization: `Bearer ${TMDB_TOKEN}` });
 
@@ -121,6 +190,8 @@ async function enrichTmdb(films) {
     return;
   }
   for (const f of Object.values(films)) {
+    if (f.tmdbChecked) continue;
+    f.tmdbChecked = true;
     const q = encodeURIComponent(f.originalTitle || f.title);
     let res = await tmdb(`/search/movie?query=${q}&language=fr-FR${f.year ? `&year=${f.year}` : ''}`);
     if (!res?.results?.length && f.year) res = await tmdb(`/search/movie?query=${q}&language=fr-FR`);
@@ -192,13 +263,23 @@ async function fetchLetterboxd() {
 }
 
 const cinemas = JSON.parse(await readFile(new URL('cinemas.json', root), 'utf8'));
+let previous = {};
+try { previous = JSON.parse(await readFile(new URL('data/seances.json', root), 'utf8')).films || {}; } catch { /* premier lancement */ }
 const { films, seances } = await fetchShowtimes(cinemas);
+// on réutilise ce qu'on connaît déjà (bandes-annonces, avis) pour ne pas tout redemander chaque nuit
+const FRESH = 4 * 86400000;
+for (const [id, f] of Object.entries(films)) {
+  const p = previous[id]; if (!p) continue;
+  if (p.tmdbChecked) Object.assign(f, { tmdbId: p.tmdbId, tmdbGenres: p.tmdbGenres, trailer: p.trailer, tmdbChecked: true, poster: f.poster || p.poster });
+  if (p.reviewsAt && Date.now() - p.reviewsAt < FRESH) Object.assign(f, { pressReviews: p.pressReviews, userReviews: p.userReviews, reviewsAt: p.reviewsAt });
+}
 console.log(`${Object.keys(films).length} films, ${seances.length} séances`);
 if (!seances.length) {
   console.error('Aucune séance récupérée : fichier non modifié.');
   process.exit(1);
 }
 await enrichTmdb(films);
+await enrichReviews(films);
 const journal = await fetchLetterboxd();
 await mkdir(new URL('data/', root), { recursive: true });
 await writeFile(

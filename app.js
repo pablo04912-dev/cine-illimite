@@ -1,30 +1,42 @@
 'use strict';
 
-// ---------- état ----------
+// ================= état =================
 const DEFAULT_POS = { lat: 48.8396, lng: 2.3958, label: 'Paris 12e' };
 const store = {
   get(k, d) { try { const v = localStorage.getItem('ci.' + k); return v ? JSON.parse(v) : d; } catch { return d; } },
   set(k, v) { try { localStorage.setItem('ci.' + k, JSON.stringify(v)); } catch { /* stockage indisponible */ } }
 };
+const FORMULES = {
+  m26: { label: 'UGC Illimité −26 ans', prix: 19.9 },
+  solo: { label: 'UGC Illimité Solo', prix: 23.9 },
+  duo: { label: 'UGC Illimité Duo', prix: 39.9 },
+  autre: { label: 'Autre montant', prix: null }
+};
 const S = {
   data: null,
   pos: DEFAULT_POS,
-  time: 'soon',
-  vo: false, list: false, premium: false,
+  mode: 'now', // now | tonight | from | all
+  fromTime: store.get('fromTime', '19:00'),
+  tomorrow: false,
+  vo: false, indie: false, list: false, premium: false,
   radius: 3,
+  limit: 30,
   liste: new Set(store.get('liste', [])),
-  vus: store.get('vus', []),
-  prix: store.get('prix', { formule: '', plein: 14.9 })
+  vus: store.get('vus2', []),
+  carte: Object.assign({ formule: 'duo', prix: 39.9, partage: 2, plein: 14.9 }, store.get('carte', {})),
+  theme: store.get('theme', 'light')
 };
 const $ = (s, el = document) => el.querySelector(s);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const num = (v) => parseFloat(String(v).replace(',', '.'));
+const euro = (v) => (Math.round(v * 100) / 100).toFixed(2).replace('.', ',') + ' €';
 
-// ---------- utilitaires ----------
+// ================= utilitaires =================
 const ymd = (d) => new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Paris' }).format(d);
 const today = () => ymd(new Date());
 const tomorrow = () => ymd(new Date(Date.now() + 86400000));
 const hm = (t) => t.slice(11, 16).replace(':', 'h');
-const asDate = (t) => new Date(t + ':00'); // heure locale (Paris)
+const asDate = (t) => new Date(t + ':00');
 const minutesUntil = (t) => Math.round((asDate(t) - Date.now()) / 60000);
 function runtimeMin(r) {
   if (!r) return 110;
@@ -57,22 +69,27 @@ function quand(t) {
   if (d === tomorrow()) return `Demain ${hm(t)}`;
   return new Date(d).toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric' }) + ' ' + hm(t);
 }
-const posterStyle = (f) => (f && f.poster ? `style="background-image:url('${esc(f.poster)}')"` : '');
+const bg = (url) => (url ? `background-image:url('${esc(url)}')` : '');
 const cinema = (id) => S.data.cinemaById[id];
+const isIndie = (c) => !/^(UGC|MK2)\b/i.test(c.name);
+const shortName = (c) => c.name.replace(/^UGC Ciné Cité /, 'UGC ').replace(/\s*\(.*\)$/, '');
+function toast(msg) {
+  const t = $('#toast'); t.textContent = msg; t.classList.add('show');
+  clearTimeout(toast.t); toast.t = setTimeout(() => t.classList.remove('show'), 2600);
+}
+const ICON_ARROW = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M7 17L17 7M9 7h8v8"/></svg>';
 
-// ---------- goûts / recommandations ----------
+// ================= goûts / recommandations =================
 function buildTaste() {
   const w = {}; let n = 0;
-  for (const e of S.data.journal || []) {
-    if (e.rating == null || !e.genres) continue;
-    n++;
-    for (const g of e.genres) w[g] = (w[g] || 0) + (e.rating - 2.75);
-  }
+  const add = (genres, rating) => { n++; for (const g of genres) w[g] = (w[g] || 0) + (rating - 2.75); };
+  for (const e of S.data.journal || []) if (e.rating != null && e.genres) add(e.genres, e.rating);
+  for (const v of S.vus) { const f = S.data.films[v.f]; if (v.rating && f?.tmdbGenres?.length) add(f.tmdbGenres, v.rating); }
   S.taste = n ? w : null;
 }
 function score(f) {
-  const q = ((f.press || 3) + (f.spect || 3)) / 2; // 0–5
-  let s = (q - 2.5) / 2.5; // -1..1
+  const q = ((f.press || 3) + (f.spect || 3)) / 2;
+  let s = (q - 2.5) / 2.5;
   if (S.taste && f.tmdbGenres?.length) {
     const t = f.tmdbGenres.reduce((a, g) => a + (S.taste[g] || 0), 0) / f.tmdbGenres.length;
     s = s * 0.4 + Math.tanh(t / 2) * 0.6;
@@ -80,76 +97,104 @@ function score(f) {
   return s;
 }
 const matchPct = (f) => Math.max(40, Math.min(99, Math.round(70 + score(f) * 29)));
+const seenIds = () => new Set(S.vus.map((v) => v.f));
 
-// ---------- filtres séances ----------
+// ================= filtres =================
+function window_() {
+  const day = S.tomorrow ? tomorrow() : today();
+  let from = '00:00';
+  if (S.mode === 'tonight') from = '18:00';
+  if (S.mode === 'from') from = S.fromTime;
+  return { day, from };
+}
 function filtered() {
-  const now = Date.now();
-  const t0 = today(), t1 = tomorrow();
+  const { day, from } = window_();
+  const nowMs = Date.now() - 5 * 60000;
   return S.data.seances.filter((s) => {
     const c = cinema(s.c); if (!c || c.km > S.radius) return false;
-    const start = asDate(s.t).getTime();
-    if (start < now - 5 * 60000) return false;
-    const d = s.t.slice(0, 10);
-    if (S.time === 'soon' && start > now + 75 * 60000) return false;
-    if (S.time === 'today' && d !== t0) return false;
-    if (S.time === 'tonight' && (d !== t0 || s.t.slice(11, 13) < '18')) return false;
-    if (S.time === 'tomorrow' && d !== t1) return false;
+    if (s.t.slice(0, 10) !== day) return false;
+    if (s.t.slice(11, 16) < from) return false;
+    if (asDate(s.t).getTime() < nowMs) return false;
     if (S.vo && s.v !== 'VOST') return false;
+    if (S.indie && !isIndie(c)) return false;
     if (S.list && !S.liste.has(s.f)) return false;
     if (S.premium && !s.x) return false;
     return true;
   });
 }
-
-// ---------- rendu : Séances ----------
-function renderSeances() {
-  $('#now-label').textContent = new Date().toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'short' }) +
-    ' · ' + new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
-  $('#loc-label').textContent = S.pos.label;
-  const allRows = filtered();
-  const list = allRows.slice(0, S.limit || 80);
-  const el = $('#seances-list');
-  if (!list.length) {
-    el.innerHTML = `<p class="empty">Aucune séance avec ces filtres.<br>Essaie « Aujourd'hui » ou un rayon plus grand.</p>`;
-    return;
+// regroupe par film, sans doublons : à heure égale on garde la salle la plus proche
+function groupByFilm(list) {
+  const by = new Map();
+  for (const s of list) {
+    if (!by.has(s.f)) by.set(s.f, new Map());
+    const m = by.get(s.f);
+    const prev = m.get(s.t);
+    if (!prev || cinema(s.c).km < cinema(prev.c).km) m.set(s.t, s);
   }
-  el.innerHTML = list.map((s) => {
-    const f = S.data.films[s.f]; const c = cinema(s.c);
-    const note = f.press || f.spect;
-    return `<button class="row" data-film="${s.f}" data-day="${s.t.slice(0, 10)}">
-      <div class="poster" ${posterStyle(f)}></div>
-      <div class="info">
-        <div class="l1"><span class="ttl">${esc(f.title)}</span><span class="hour">${hm(s.t)}</span></div>
-        <span class="sub">${esc(c.name)} · ${fmtDist(c.km)}</span>
-        <div class="tags">
-          <span class="tag">${s.v}</span>
-          <span class="tag">${dansLabel(s.t)}</span>
-          ${s.x ? `<span class="tag acc">${esc(s.x)}</span>` : ''}
-          ${s.p ? '<span class="tag acc">Avant-première</span>' : ''}
-          ${note ? `<span class="tag">★ ${note}</span>` : ''}
-          ${S.liste.has(s.f) ? '<span class="tag acc">Ma liste</span>' : ''}
-        </div>
-      </div></button>`;
-  }).join('') + (allRows.length > list.length
-    ? `<button class="btn" id="more" style="width:100%">Afficher plus (${allRows.length - list.length} séances restantes)</button>`
-    : '');
-  const more = $('#more');
-  if (more) more.onclick = () => { S.limit = (S.limit || 80) + 80; renderSeances(); };
+  const out = [];
+  for (const [f, m] of by) {
+    const arr = [...m.values()].sort((a, b) => a.t.localeCompare(b.t) || cinema(a.c).km - cinema(b.c).km);
+    out.push({ f, seances: arr });
+  }
+  out.sort((a, b) => a.seances[0].t.localeCompare(b.seances[0].t) || cinema(a.seances[0].c).km - cinema(b.seances[0].c).km);
+  return out;
 }
 
-// ---------- rendu : Pour toi ----------
-function pairsTonight() {
+// ================= Séances =================
+function renderSeances() {
+  const now = new Date();
+  $('#now-label').textContent = now.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'short' }) + ' · ' + now.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+  const groups = groupByFilm(filtered());
+  const shown = groups.slice(0, S.limit);
+  $('#count-label').textContent = `${groups.length} film${groups.length > 1 ? 's' : ''} · salles qui acceptent ta carte UGC Illimité`;
+  const el = $('#seances-grid');
+  if (!groups.length) {
+    el.innerHTML = `<p class="empty">Aucune séance avec ces filtres.<br>Essaie un rayon plus grand ou une autre heure.</p>`;
+    return;
+  }
+  el.innerHTML = shown.map(({ f: id, seances }) => {
+    const f = S.data.films[id]; const s = seances[0]; const c = cinema(s.c);
+    const others = seances.slice(1, 4).map((x) => `<span>${hm(x.t)}</span>`).join('');
+    return `<button class="fcard" data-film="${id}" data-day="${s.t.slice(0, 10)}">
+      <div class="pic" style="${bg(f.poster)}">
+        <div class="badges">
+          <span class="badge">${s.v}</span>
+          ${s.x ? `<span class="badge acc">${esc(s.x)}</span>` : ''}
+          ${s.p ? '<span class="badge acc">Avant-première</span>' : ''}
+          ${S.liste.has(id) ? '<span class="badge acc">Ma liste</span>' : ''}
+        </div>
+        <span class="ttl">${esc(f.title)}</span>
+      </div>
+      <div class="info">
+        <div class="when"><b>${hm(s.t)}</b><span>${dansLabel(s.t)}</span></div>
+        <div class="where">${esc(shortName(c))}<small>${fmtDist(c.km)}${isIndie(c) ? ' · salle indé' : ''}${c.extra ? ' · ' + esc(c.extra) : ''}</small></div>
+        ${others ? `<div class="more">${others}${seances.length > 4 ? `<span>+${seances.length - 4}</span>` : ''}</div>` : ''}
+      </div>
+    </button>`;
+  }).join('') + (groups.length > shown.length ? `<button class="btn btn-more" id="more">Afficher plus (${groups.length - shown.length} films)</button>` : '');
+  const more = $('#more');
+  if (more) more.onclick = () => { S.limit += 30; renderSeances(); };
+}
+
+// ================= Pour toi =================
+function upcomingNear(id, maxKm) {
+  return S.data.seances.find((s) => s.f === id && asDate(s.t) > Date.now() && cinema(s.c)?.km <= maxKm);
+}
+function pairsToday(maxKm) {
   const now = Date.now(); const d0 = today();
-  const todays = S.data.seances.filter((s) => s.t.slice(0, 10) === d0 && asDate(s.t).getTime() > now && cinema(s.c)?.km <= Math.max(S.radius, 3));
+  const todays = S.data.seances.filter((s) => s.t.startsWith(d0) && asDate(s.t).getTime() > now && cinema(s.c)?.km <= maxKm);
+  const byC = {};
+  for (const s of todays) (byC[s.c] ||= []).push(s);
   const out = [];
-  for (const a of todays) {
-    const fa = S.data.films[a.f];
-    const end = asDate(a.t).getTime() + (15 + runtimeMin(fa.runtime)) * 60000;
-    for (const b of todays) {
-      if (b.c !== a.c || b.f === a.f) continue;
-      const gap = (asDate(b.t).getTime() - end) / 60000;
-      if (gap < 5 || gap > 45) continue;
-      out.push({ a, b, end, gap: Math.round(gap), s: score(fa) + score(S.data.films[b.f]) - gap / 200 });
+  for (const list of Object.values(byC)) {
+    for (const a of list) {
+      const end = asDate(a.t).getTime() + (15 + runtimeMin(S.data.films[a.f].runtime)) * 60000;
+      for (const b of list) {
+        if (b.f === a.f) continue;
+        const gap = (asDate(b.t).getTime() - end) / 60000;
+        if (gap < 5 || gap > 45) continue;
+        out.push({ a, b, end, gap: Math.round(gap), s: score(S.data.films[a.f]) + score(S.data.films[b.f]) - gap / 200 });
+      }
     }
   }
   out.sort((x, y) => y.s - x.s);
@@ -158,114 +203,201 @@ function pairsTonight() {
   return res;
 }
 function renderPourToi() {
-  const films = Object.entries(S.data.films).filter(([id]) => S.data.seances.some((s) => s.f === id && cinema(s.c)?.km <= Math.max(S.radius, 3) && asDate(s.t) > Date.now()));
+  const maxKm = Math.max(S.radius, 3);
+  const vus = seenIds();
+  const films = Object.entries(S.data.films).filter(([id]) => !vus.has(id) && upcomingNear(id, maxKm));
   const d0 = today();
-  const auj = new Set(S.data.seances.filter((s) => s.t.startsWith(d0) && asDate(s.t) > Date.now() && cinema(s.c)?.km <= Math.max(S.radius, 3)).map((s) => s.f));
-  const rank = (f, id) => score(f) + (auj.has(id) ? 0.15 : 0);
-  films.sort((a, b) => rank(b[1], b[0]) - rank(a[1], a[0]));
-  $('#pt-kicker').textContent = S.taste ? 'Selon ton Letterboxd' : 'Selon la presse et le public';
-  const next = (id) => S.data.seances.find((s) => s.f === id && asDate(s.t) > Date.now() && cinema(s.c)?.km <= Math.max(S.radius, 3));
-  const mini = ([id, f]) => { const n = next(id); return `<button class="mini" data-film="${id}" data-day="${n ? n.t.slice(0, 10) : ''}"><div class="poster" ${posterStyle(f)}></div><b>${esc(f.title)}</b><small>${n ? quand(n.t) + ' · ' : ''}${matchPct(f)} %</small></button>`; };
+  const auj = new Set(S.data.seances.filter((s) => s.t.startsWith(d0) && asDate(s.t) > Date.now() && cinema(s.c)?.km <= maxKm).map((s) => s.f));
+  const rank = ([id, f]) => score(f) + (auj.has(id) ? 0.15 : 0);
+  films.sort((a, b) => rank(b) - rank(a));
+  $('#pt-kicker').textContent = S.taste ? 'Selon tes notes' : 'Selon la presse et le public';
 
   const top = films.find(([id]) => auj.has(id)) || films[0];
+  const rest = films.filter((x) => x !== top);
   const counts = {}; for (const s of S.data.seances) counts[s.f] = (counts[s.f] || 0) + 1;
-  const old = films.filter(([id, f]) => f.release && (Date.now() - new Date(f.release)) > 21 * 86400000 && counts[id] <= 6).slice(0, 8);
-  const pairs = pairsTonight();
+  const lastChance = rest.filter(([id, f]) => f.release && (Date.now() - new Date(f.release)) > 21 * 86400000 && counts[id] <= 6).slice(0, 8);
   const listed = films.filter(([id]) => S.liste.has(id));
+  const pairs = pairsToday(maxKm);
+  const sub = (id) => { const n = upcomingNear(id, maxKm); return n ? `${quand(n.t)} · ${esc(shortName(cinema(n.c)))}` : ''; };
+  const mini = ([id, f]) => { const n = upcomingNear(id, maxKm); return `<button class="mini" data-film="${id}" data-day="${n ? n.t.slice(0, 10) : ''}"><i style="${bg(f.poster)}"></i><b>${esc(f.title)}</b><small>${n ? quand(n.t) : ''}</small></button>`; };
 
   let html = '';
   if (top) {
-    const [id, f] = top; const n = next(id);
-    html += `<div class="card"><span class="sub" style="color:var(--acc);font-weight:600">Ton meilleur match à l'affiche</span>
-      <button class="row" style="border:none;padding:10px 0 0;background:none" data-film="${id}" data-day="${n ? n.t.slice(0, 10) : ''}">
-        <div class="poster" style="width:84px;height:120px;${f.poster ? `background-image:url('${esc(f.poster)}')` : ''}"></div>
-        <div class="info"><span class="ttl" style="font-size:18px;white-space:normal">${esc(f.title)}</span>
-        <span class="sub">${esc(f.director || '')}</span>
-        <span class="sub" style="color:var(--soft)">${esc((f.genres || []).slice(0, 2).join(', '))} · match ${matchPct(f)} %</span>
-        ${n ? `<span style="color:var(--acc);font-size:13px;font-weight:600">Prochaine : ${quand(n.t)} · ${esc(cinema(n.c).name)}</span>` : ''}</div></button></div>`;
+    const [id, f] = top; const n = upcomingNear(id, maxKm);
+    html += `<button class="feature" data-film="${id}" data-day="${n ? n.t.slice(0, 10) : ''}">
+      <div class="in">
+        <span class="bk">Ton film du jour · ${matchPct(f)} %</span>
+        <span class="bt">${esc(f.title)}</span>
+        <span class="bs">${esc([f.director, (f.genres || []).slice(0, 2).join(', ')].filter(Boolean).join(' · '))}</span>
+        <span class="bs"><b>${sub(id)}</b></span>
+      </div>
+      <div class="img" style="${bg(f.poster)}"></div>
+    </button>`;
   }
   if (listed.length) html += `<div class="stack" style="gap:10px"><h2>Ma liste</h2><div class="hscroll">${listed.map(mini).join('')}</div></div>`;
-  html += `<div class="stack" style="gap:10px"><h2>Recommandés</h2><div class="hscroll">${films.filter((x) => x !== top).slice(0, 12).map(mini).join('')}</div></div>`;
+  html += `<h2>Recommandés</h2>` + rest.slice(0, 8).map(([id, f]) => {
+    const n = upcomingNear(id, maxKm);
+    return `<button class="banner" data-film="${id}" data-day="${n ? n.t.slice(0, 10) : ''}" style="${bg(f.poster)}">
+      <div class="in"><span class="bt">${esc(f.title)}</span><span class="bs">${sub(id)}</span><span class="bs">${esc((f.genres || []).slice(0, 2).join(', '))}</span></div>
+      <span class="go">${ICON_ARROW}</span><span class="pill">${matchPct(f)} %</span>
+    </button>`;
+  }).join('');
   if (pairs.length) {
-    html += `<div class="stack" style="gap:10px"><h2>Enchaîne deux films aujourd'hui</h2>${pairs.map((p) => {
+    html += `<h2>Enchaîne deux films</h2>` + pairs.map((p) => {
       const fa = S.data.films[p.a.f], fb = S.data.films[p.b.f];
       const endH = new Date(p.end).toTimeString().slice(0, 5).replace(':', 'h');
-      return `<div class="card pair">
-        <button class="step" data-film="${p.a.f}" data-day="${today()}"><span class="hour">${hm(p.a.t)}</span><span>${esc(fa.title)}</span><small class="sub">${p.a.v}</small></button>
-        <div class="gap">Fin vers ${endH} · ${p.gap} min de battement · ${esc(cinema(p.a.c).name)}</div>
-        <button class="step" data-film="${p.b.f}" data-day="${today()}"><span class="hour">${hm(p.b.t)}</span><span>${esc(fb.title)}</span><small class="sub">${p.b.v}</small></button>
+      return `<div class="pair">
+        <button class="step" data-film="${p.a.f}" data-day="${today()}"><i style="${bg(fa.poster)}"></i><b>${hm(p.a.t)}</b><span>${esc(fa.title)}</span></button>
+        <div class="gap">Fin vers ${endH} · ${p.gap} min de pause · ${esc(shortName(cinema(p.a.c)))}</div>
+        <button class="step" data-film="${p.b.f}" data-day="${today()}"><i style="${bg(fb.poster)}"></i><b>${hm(p.b.t)}</b><span>${esc(fb.title)}</span></button>
       </div>`;
-    }).join('')}</div>`;
+    }).join('');
   }
-  if (old.length) html += `<div class="stack" style="gap:10px"><h2>Dernières chances</h2><div class="hscroll">${old.map(mini).join('')}</div></div>`;
+  if (lastChance.length) html += `<div class="stack" style="gap:10px"><h2>Dernières chances</h2><div class="hscroll">${lastChance.map(mini).join('')}</div></div>`;
   $('#pourtoi').innerHTML = html || '<p class="empty">Pas encore de données.</p>';
 }
 
-// ---------- rendu : Journal ----------
-function renderJournal() {
-  const month = today().slice(0, 7);
-  $('#j-kicker').textContent = new Date().toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' });
-  const ce = S.vus.filter((v) => v.date.startsWith(month));
-  const formule = parseFloat(String(S.prix.formule).replace(',', '.'));
-  const plein = parseFloat(String(S.prix.plein).replace(',', '.')) || 0;
-  const parSeance = formule && ce.length ? (formule / ce.length).toFixed(2).replace('.', ',') + ' €' : '–';
-  const eco = formule ? Math.round(ce.length * plein - formule) : null;
-  let html = `<div class="stat">
-    <small style="font-weight:600;letter-spacing:.06em;text-transform:uppercase">Ma carte ce mois</small>
-    <div class="grid">
-      <div><span class="n">${ce.length}</span><small>séance${ce.length > 1 ? 's' : ''}</small></div>
-      <div><span class="n">${parSeance}</span><small>par séance</small></div>
-      <div><span class="n">${eco == null ? '–' : (eco >= 0 ? '+' : '') + eco + ' €'}</span><small>${eco != null && eco < 0 ? 'à rattraper' : 'économisés'}</small></div>
-    </div>
-    <div style="display:flex;gap:12px;flex-wrap:wrap">
-      <label>Ma formule <input id="p-formule" inputmode="decimal" value="${esc(S.prix.formule)}" placeholder="€/mois"></label>
-      <label>Plein tarif <input id="p-plein" inputmode="decimal" value="${esc(S.prix.plein)}"></label>
-    </div>
-  </div>`;
-  if (S.vus.length) {
-    html += `<div class="stack" style="gap:10px"><h2>Vus avec la carte</h2>${S.vus.slice().reverse().slice(0, 30).map((v, i) => {
-      const f = S.data.films[v.f];
-      return `<div class="card diary"><div class="poster" ${posterStyle(f || v)}></div><div class="info" style="display:flex;flex-direction:column;gap:4px;flex:1">
-        <b>${esc(v.title)}</b><span class="sub">${new Date(v.date).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })}${v.cinema ? ' · ' + esc(v.cinema) : ''}</span>
-        <button class="btn" style="height:32px;align-self:flex-start;font-size:12px" data-del="${S.vus.length - 1 - i}">Retirer</button></div></div>`;
-    }).join('')}</div>`;
+// ================= Historique =================
+function starsHtml(i, r) {
+  return `<div class="stars" role="group" aria-label="Ta note">${[1, 2, 3, 4, 5].map((k) =>
+    `<button data-star="${k}" data-i="${i}" class="${r >= k ? 'on' : r >= k - 0.5 ? 'half' : ''}" aria-label="${k} étoile${k > 1 ? 's' : ''}">★</button>`).join('')}
+    <span class="m" style="margin-left:6px;align-self:center">${r ? String(r).replace('.', ',') + '/5' : 'Pas noté'}</span></div>`;
+}
+function renderHisto() {
+  const el = $('#histo');
+  let html = '';
+  if (!S.vus.length) {
+    html += `<div class="card dark"><h2 style="color:var(--acc)">Rien pour l'instant</h2><p class="syn" style="color:var(--dark-mut);margin-top:8px">Dans la fiche d'un film, touche « Je l'ai vu » : il arrive ici, tu peux le noter, écrire ton avis et l'envoyer sur Letterboxd.</p></div>`;
+  } else {
+    html += `<div class="row-actions"><button class="btn sm dark" id="export-lb">Exporter pour Letterboxd (CSV)</button></div>`;
+    html += S.vus.map((v, i) => ({ v, i })).reverse().map(({ v, i }) => {
+      const f = S.data.films[v.f] || v;
+      return `<div class="card hist">
+        <i style="${bg(f.poster || v.poster)}"></i>
+        <div class="body">
+          <span class="t">${esc(v.title)}</span>
+          <span class="m">${new Date(v.date).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' })}${v.cinema ? ' · ' + esc(v.cinema) : ''}</span>
+          ${starsHtml(i, v.rating || 0)}
+          <label class="sr" for="rev-${i}">Ton avis</label>
+          <textarea id="rev-${i}" data-rev="${i}" placeholder="Ton avis en quelques mots…">${esc(v.review || '')}</textarea>
+          <div class="row-actions">
+            <button class="btn sm pri" data-lb="${i}">Publier sur Letterboxd</button>
+            <button class="btn sm" data-del="${i}">Retirer</button>
+          </div>
+        </div>
+      </div>`;
+    }).join('');
   }
   const j = S.data.journal || [];
   if (j.length) {
-    html += `<div class="stack" style="gap:10px"><h2>Letterboxd</h2>${j.slice(0, 30).map((e) => `<div class="card diary">
-      <div class="poster" ${e.poster ? `style="background-image:url('${esc(e.poster)}')"` : ''}></div>
-      <div style="display:flex;flex-direction:column;gap:4px;flex:1;min-width:0">
-        <b>${esc(e.title)} <span class="sub">${esc(e.year || '')}</span></b>
-        <span class="stars">${e.rating != null ? '★'.repeat(Math.floor(e.rating)) + (e.rating % 1 ? '½' : '') : ''}</span>
-        ${e.date ? `<span class="sub">${new Date(e.date).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: 'numeric' })}</span>` : ''}
-        ${e.review ? `<span style="font-size:13px;color:var(--soft)">${esc(e.review)}</span>` : ''}
-      </div></div>`).join('')}</div>`;
-  } else {
-    html += `<div class="card"><h2>Letterboxd</h2><p class="syn" style="margin-top:8px">Pas encore branché. Ajoute ton pseudo Letterboxd dans les réglages du projet (variable LETTERBOXD_USER) : ton journal et tes notes apparaîtront ici et les recommandations se baseront dessus.</p></div>`;
+    html += `<h2>Sur ton Letterboxd</h2>` + j.slice(0, 20).map((e) => `<div class="card hist"><i style="${bg(e.poster)}"></i><div class="body">
+      <span class="t">${esc(e.title)}</span><span class="m">${esc(e.year || '')}${e.date ? ' · ' + new Date(e.date).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' }) : ''}${e.rating != null ? ' · ' + String(e.rating).replace('.', ',') + '/5' : ''}</span>
+      ${e.review ? `<p class="syn">${esc(e.review)}</p>` : ''}</div></div>`).join('');
   }
-  $('#journal').innerHTML = html;
-  const save = () => { S.prix = { formule: $('#p-formule').value, plein: $('#p-plein').value }; store.set('prix', S.prix); renderJournal(); };
-  $('#p-formule').addEventListener('change', save);
-  $('#p-plein').addEventListener('change', save);
+  el.innerHTML = html;
+}
+function letterboxdPublish(i) {
+  const v = S.vus[i]; const f = S.data.films[v.f] || {};
+  const text = v.review || '';
+  const url = f.tmdbId ? `https://letterboxd.com/tmdb/${f.tmdbId}/` : `https://letterboxd.com/search/${encodeURIComponent(v.title)}/`;
+  const go = () => window.open(url, '_blank', 'noopener');
+  if (text && navigator.clipboard) {
+    navigator.clipboard.writeText(text).then(() => { toast('Avis copié : colle-le sur Letterboxd'); go(); }, () => go());
+  } else go();
+}
+function exportLetterboxd() {
+  const q = (s) => `"${String(s ?? '').replace(/"/g, '""')}"`;
+  const rows = [['Title', 'Year', 'tmdbID', 'WatchedDate', 'Rating', 'Review']];
+  for (const v of S.vus) {
+    const f = S.data.films[v.f] || {};
+    rows.push([v.title, f.year || '', f.tmdbId || '', v.date, v.rating || '', v.review || '']);
+  }
+  const blob = new Blob([rows.map((r) => r.map(q).join(',')).join('\n')], { type: 'text/csv' });
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'letterboxd-import.csv'; a.click();
+  toast('Fichier prêt : Letterboxd › Settings › Import & Export');
 }
 
-// ---------- fiche film ----------
+// ================= Ma carte =================
+function renderCarte() {
+  const month = today().slice(0, 7);
+  $('#c-kicker').textContent = new Date().toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' });
+  const c = S.carte;
+  const prix = num(c.prix) || 0; const plein = num(c.plein) || 0; const n = Math.max(1, +c.partage || 1);
+  const part = prix / n;
+  const ce = S.vus.filter((v) => v.date.startsWith(month)).length;
+  const seuil = plein ? Math.ceil(part / plein) : 0;
+  const eco = ce * plein - part;
+  const an = S.vus.filter((v) => v.date.startsWith(month.slice(0, 4))).length;
+  $('#carte').innerHTML = `
+    <div class="stat">
+      <small style="font-weight:700;letter-spacing:.08em;text-transform:uppercase">Ce mois-ci</small>
+      <div style="display:flex;align-items:flex-end;gap:10px"><span class="big">${eco >= 0 ? '+' : ''}${euro(eco)}</span></div>
+      <small>${eco >= 0 ? 'économisés par rapport au plein tarif' : 'encore à rattraper avant que la carte soit rentable'}</small>
+      <div class="bar" aria-hidden="true"><i style="width:${seuil ? Math.min(100, (ce / seuil) * 100) : 0}%"></i></div>
+      <small>${ce} séance${ce > 1 ? 's' : ''} sur ${seuil} pour être rentable${ce >= seuil && seuil ? ' : c\'est fait ✓' : ''}</small>
+      <div class="grid3">
+        <div><span class="n">${euro(part)}</span><small>ta part / mois</small></div>
+        <div><span class="n">${ce ? euro(part / ce) : '–'}</span><small>par séance</small></div>
+        <div><span class="n">${an}</span><small>films en ${month.slice(0, 4)}</small></div>
+      </div>
+    </div>
+    <div class="card form">
+      <h2>Mon abonnement</h2>
+      <label>Formule
+        <select id="c-formule">${Object.entries(FORMULES).map(([k, f]) => `<option value="${k}" ${c.formule === k ? 'selected' : ''}>${f.label}${f.prix ? ' · ' + euro(f.prix) : ''}</option>`).join('')}</select>
+      </label>
+      <label>Prix mensuel total <input id="c-prix" inputmode="decimal" value="${(num(c.prix) || 0).toFixed(2).replace('.', ',')}"></label>
+      <div><span style="font-size:13px;font-weight:600">Payé à</span>
+        <div class="seg" role="group" aria-label="Partage">${[1, 2, 3].map((k) => `<button data-part="${k}" aria-pressed="${n === k}">${k === 1 ? 'Seul' : 'À ' + k}</button>`).join('')}</div></div>
+      <label>Prix d'une place plein tarif <input id="c-plein" inputmode="decimal" value="${(num(c.plein) || 0).toFixed(2).replace('.', ',')}"></label>
+      <small style="color:var(--mut)">Tarifs indicatifs : vérifie le montant exact dans ton espace UGC.</small>
+    </div>
+    <div class="card form">
+      <h2>Apparence</h2>
+      <div class="seg" role="group" aria-label="Thème">
+        <button data-theme-set="light" aria-pressed="${S.theme === 'light'}">Clair</button>
+        <button data-theme-set="dark" aria-pressed="${S.theme === 'dark'}">Sombre</button>
+      </div>
+    </div>`;
+  const save = () => { store.set('carte', S.carte); renderCarte(); };
+  $('#c-formule').onchange = (e) => { S.carte.formule = e.target.value; const p = FORMULES[e.target.value].prix; if (p) S.carte.prix = p; save(); };
+  $('#c-prix').onchange = (e) => { S.carte.prix = num(e.target.value) || 0; S.carte.formule = 'autre'; save(); };
+  $('#c-plein').onchange = (e) => { S.carte.plein = num(e.target.value) || 0; save(); };
+}
+function applyTheme() {
+  document.documentElement.dataset.theme = S.theme;
+  $('meta[name="theme-color"]').content = S.theme === 'dark' ? '#0F0F11' : '#ECE9E4';
+}
+
+// ================= fiche film =================
+function isSeenToday(id) { return S.vus.findIndex((v) => v.f === id && v.date === today()); }
+function reviewsHtml(f, kind) {
+  const r = kind === 'press' ? f.pressReviews : f.userReviews;
+  const id = f._id;
+  const link = `https://www.allocine.fr/film/fichefilm-${id}/critiques/${kind === 'press' ? 'presse' : 'spectateurs'}/`;
+  if (!r || (!r.pos && !r.neg)) return `<div class="rev"><p>Pas encore d'avis disponibles.</p><a href="${link}" target="_blank" rel="noopener">Voir sur AlloCiné</a></div>`;
+  const one = (x, cls, lbl) => x ? `<div class="rev ${cls}"><div class="h"><span>${lbl} · ${esc(x.who || '')}</span><span>${x.note != null ? String(x.note).replace('.', ',') + '/5' : ''}</span></div><p>${esc(x.text)}</p></div>` : '';
+  return one(r.pos, 'pos', 'Le plus enthousiaste') + one(r.neg, 'neg', 'Le plus sévère') + `<a href="${link}" target="_blank" rel="noopener" style="font-size:12px;font-weight:600">Tous les avis sur AlloCiné</a>`;
+}
 function openFilm(id, day) {
   const f = S.data.films[id]; if (!f) return;
+  f._id = id;
   const all = S.data.seances.filter((s) => s.f === id && cinema(s.c));
-  const days = [...new Set(all.map((s) => s.t.slice(0, 10)))].filter((d) => d >= today());
+  const days = [...new Set(all.map((s) => s.t.slice(0, 10)))].filter((d) => d >= today()).sort();
   let cur = day && days.includes(day) ? day : days[0];
+  let open = null; // 'press' | 'user'
   const dayLabel = (d) => d === today() ? "Aujourd'hui" : d === tomorrow() ? 'Demain' : new Date(d).toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric' });
 
   function body() {
     const byC = {};
     for (const s of all.filter((s) => s.t.startsWith(cur))) (byC[s.c] ||= []).push(s);
     const cines = Object.keys(byC).sort((a, b) => cinema(a).km - cinema(b).km);
+    const seen = isSeenToday(id) >= 0;
     return `
-    <div class="hero" ${f.poster ? `style="background-image:url('${esc(f.poster)}')"` : ''}>
-      <button class="back" id="close" aria-label="Fermer"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg></button>
+    <div class="hero" style="${bg(f.poster)}">
+      <button class="back glass" id="close" aria-label="Fermer"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg></button>
       <div>
-        ${f.trailer ? `<button class="play" id="play"><svg width="18" height="18" viewBox="0 0 24 24" fill="#FFB547" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>Bande-annonce</button>` : ''}
+        ${f.trailer ? `<button class="play glass" id="play"><svg width="18" height="18" viewBox="0 0 24 24" fill="#F3EC3A" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>Bande-annonce</button>` : ''}
         <h2 id="f-title">${esc(f.title)}</h2>
         <div class="meta">${esc([f.director, f.runtime, (f.genres || []).slice(0, 2).join(', ')].filter(Boolean).join(' · '))}</div>
       </div>
@@ -273,19 +405,20 @@ function openFilm(id, day) {
     <div class="sheet-body">
       <div id="video"></div>
       <div class="scores">
-        <div><small>Presse</small><b>${f.press ?? '–'}</b></div>
-        <div><small>Spectateurs</small><b>${f.spect ?? '–'}</b></div>
+        <button id="sc-press" aria-expanded="${open === 'press'}"><small>Presse</small><b>${f.press ?? '–'}</b><em>Voir les avis</em></button>
+        <button id="sc-user" aria-expanded="${open === 'user'}"><small>Spectateurs</small><b>${f.spect ?? '–'}</b><em>Voir les avis</em></button>
         <div class="acc"><small>Match pour toi</small><b>${matchPct(f)} %</b></div>
       </div>
+      ${open ? `<div class="reviews">${reviewsHtml(f, open === 'press' ? 'press' : 'user')}</div>` : ''}
       <div class="actions">
         <button class="btn ${S.liste.has(id) ? 'on' : 'pri'}" id="toggle-list">${S.liste.has(id) ? '✓ Dans ma liste' : '+ Ma liste'}</button>
-        <button class="btn" id="seen">J'y étais</button>
+        <button class="btn ${seen ? 'on' : 'dark'}" id="seen">${seen ? '✓ Vu · annuler' : "Je l'ai vu"}</button>
       </div>
       ${f.synopsis ? `<p class="syn">${esc(f.synopsis)}</p>` : ''}
       <h2>Séances</h2>
       <div class="days" role="group" aria-label="Jour">${days.map((d) => `<button data-day="${d}" aria-pressed="${d === cur}">${dayLabel(d)}</button>`).join('')}</div>
       ${cines.length ? cines.map((cid) => { const c = cinema(cid); return `<div class="card cine">
-        <div class="head"><b>${esc(c.name)}</b><span class="sub">${trajet(c.km)}</span></div>
+        <div class="head"><b>${esc(c.name)}${isIndie(c) ? ' <span class="tag">indé</span>' : ''}${c.extra ? ` <span class="tag">${esc(c.extra)}</span>` : ''}</b><span>${fmtDist(c.km)} · ${trajet(c.km)}</span></div>
         <div class="times">${byC[cid].map((s) => `<span class="${asDate(s.t) < Date.now() ? 'past' : ''}">${hm(s.t)} <small>${s.v}${s.x ? ' ' + esc(s.x) : ''}</small></span>`).join('')}</div>
       </div>`; }).join('') : '<p class="empty">Pas de séance ce jour-là.</p>'}
     </div>`;
@@ -298,60 +431,108 @@ function openFilm(id, day) {
       $('#video', root).innerHTML = `<div class="video"><iframe src="https://www.youtube-nocookie.com/embed/${encodeURIComponent(f.trailer)}?autoplay=1&playsinline=1" title="Bande-annonce" allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen></iframe></div>`;
       $('#video', root).scrollIntoView({ behavior: 'smooth', block: 'center' });
     };
+    $('#sc-press', root).onclick = () => { open = open === 'press' ? null : 'press'; paint(); };
+    $('#sc-user', root).onclick = () => { open = open === 'user' ? null : 'user'; paint(); };
     $('#toggle-list', root).onclick = () => {
       S.liste.has(id) ? S.liste.delete(id) : S.liste.add(id);
-      store.set('liste', [...S.liste]); paint(); renderAll();
+      store.set('liste', [...S.liste]); paint(); renderSeances(); renderPourToi();
     };
     $('#seen', root).onclick = () => {
-      // salle la plus proche parmi les séances d'aujourd'hui déjà commencées (sinon la prochaine)
-      const auj = all.filter((x) => x.t.startsWith(today()));
-      const started = auj.filter((x) => asDate(x.t) <= Date.now() + 30 * 60000);
-      const pool = started.length ? started : auj;
-      const s = pool.slice().sort((a, b) => cinema(a.c).km - cinema(b.c).km || b.t.localeCompare(a.t))[0];
-      S.vus.push({ f: id, title: f.title, poster: f.poster, date: today(), cinema: s ? cinema(s.c).name : '' });
-      store.set('vus', S.vus); $('#seen', root).textContent = '✓ Ajouté au journal'; renderJournal();
+      const k = isSeenToday(id);
+      if (k >= 0) { S.vus.splice(k, 1); toast("Retiré de l'historique"); }
+      else {
+        const auj = all.filter((x) => x.t.startsWith(today()));
+        const started = auj.filter((x) => asDate(x.t) <= Date.now() + 30 * 60000);
+        const pool = started.length ? started : auj;
+        const s = pool.slice().sort((a, b) => cinema(a.c).km - cinema(b.c).km || b.t.localeCompare(a.t))[0];
+        S.vus.push({ f: id, title: f.title, poster: f.poster, date: today(), cinema: s ? cinema(s.c).name : '', rating: 0, review: '' });
+        toast("Ajouté à ton historique : note-le quand tu veux");
+      }
+      store.set('vus2', S.vus); paint(); renderHisto(); renderCarte(); renderPourToi();
     };
     root.querySelectorAll('.days button').forEach((b) => (b.onclick = () => { cur = b.dataset.day; paint(); }));
   };
   paint();
-  dlg.showModal();
+  if (!dlg.open) dlg.showModal();
   dlg.scrollTop = 0;
 }
 
-// ---------- géoloc ----------
+// ================= géolocalisation =================
+function setLoc(label, sub) { $('#loc-label').textContent = label; $('#loc-sub').textContent = sub; }
 function locate(silent) {
-  if (!navigator.geolocation) return;
+  const help = $('#geo-help');
+  if (!navigator.geolocation) { setLoc(DEFAULT_POS.label, 'Géolocalisation non disponible'); return; }
+  if (!silent) setLoc(S.pos.label, 'Recherche de ta position…');
   navigator.geolocation.getCurrentPosition(
-    (p) => { S.pos = { lat: p.coords.latitude, lng: p.coords.longitude, label: 'Ta position' }; computeDistances(); renderAll(); },
-    () => { if (!silent) alert('Géolocalisation refusée : on reste sur Paris 12e.'); },
-    { enableHighAccuracy: false, timeout: 8000, maximumAge: 300000 }
+    (p) => {
+      S.pos = { lat: p.coords.latitude, lng: p.coords.longitude, label: 'Ta position' };
+      store.set('geoOk', true); help.hidden = true;
+      setLoc('Ta position', `Précision ±${Math.round(p.coords.accuracy)} m · ${new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}`);
+      computeDistances(); S.limit = 30; renderAll();
+    },
+    (err) => {
+      if (silent) return;
+      if (err.code === 1) {
+        setLoc(DEFAULT_POS.label, 'Position refusée · touche pour réessayer');
+        help.hidden = false;
+        help.innerHTML = `<b>La localisation est bloquée.</b> Sur iPhone : <b>Réglages › Confidentialité et sécurité › Service de localisation</b>, active-le, puis <b>Sites web Safari › « Lorsque l'app est active »</b>. Reviens ensuite ici et touche ta position.`;
+      } else {
+        setLoc(DEFAULT_POS.label, 'Position introuvable · touche pour réessayer');
+      }
+    },
+    { enableHighAccuracy: true, timeout: 12000, maximumAge: 120000 }
   );
 }
-function computeDistances() {
-  for (const c of S.data.cinemas) c.km = distKm(S.pos, c);
-}
+function computeDistances() { for (const c of S.data.cinemas) c.km = distKm(S.pos, c); }
 
-// ---------- événements ----------
-function renderAll() { renderSeances(); renderPourToi(); renderJournal(); }
+// ================= événements =================
+function renderAll() { renderSeances(); renderPourToi(); renderHisto(); renderCarte(); }
 document.addEventListener('click', (e) => {
   const film = e.target.closest('[data-film]');
   if (film && !e.target.closest('dialog')) { openFilm(film.dataset.film, film.dataset.day); return; }
+  const star = e.target.closest('[data-star]');
+  if (star) {
+    const i = +star.dataset.i, k = +star.dataset.star; const v = S.vus[i];
+    v.rating = v.rating === k ? k - 0.5 : v.rating === k - 0.5 ? 0 : k;
+    store.set('vus2', S.vus); buildTaste(); renderHisto(); return;
+  }
   const del = e.target.closest('[data-del]');
-  if (del) { S.vus.splice(+del.dataset.del, 1); store.set('vus', S.vus); renderJournal(); }
+  if (del) { S.vus.splice(+del.dataset.del, 1); store.set('vus2', S.vus); renderHisto(); renderCarte(); toast('Retiré'); return; }
+  const lb = e.target.closest('[data-lb]');
+  if (lb) { letterboxdPublish(+lb.dataset.lb); return; }
+  if (e.target.closest('#export-lb')) { exportLetterboxd(); return; }
+  const part = e.target.closest('[data-part]');
+  if (part) { S.carte.partage = +part.dataset.part; store.set('carte', S.carte); renderCarte(); return; }
+  const th = e.target.closest('[data-theme-set]');
+  if (th) { S.theme = th.dataset.themeSet; store.set('theme', S.theme); applyTheme(); renderCarte(); }
 });
+document.addEventListener('input', (e) => {
+  const t = e.target.closest('[data-rev]');
+  if (t) { S.vus[+t.dataset.rev].review = t.value; clearTimeout(t._t); t._t = setTimeout(() => store.set('vus2', S.vus), 300); }
+});
+function syncChips() {
+  document.querySelectorAll('#chips button').forEach((b) => {
+    const f = b.dataset.f;
+    const on = ['now', 'tonight', 'from'].includes(f) ? S.mode === f : f === 'tomorrow' ? S.tomorrow : S[f];
+    b.setAttribute('aria-pressed', String(!!on));
+  });
+  $('#chip-from-label').textContent = S.mode === 'from' ? 'Dès ' + S.fromTime.replace(':', 'h') : 'Dès…';
+  $('#from-picker').hidden = S.mode !== 'from';
+}
 $('#chips').addEventListener('click', (e) => {
   const b = e.target.closest('button'); if (!b) return;
   const f = b.dataset.f;
-  if (['soon', 'today', 'tonight', 'tomorrow'].includes(f)) {
-    S.time = S.time === f ? 'all' : f;
-    $('#chips').querySelectorAll('[data-f="soon"],[data-f="today"],[data-f="tonight"],[data-f="tomorrow"]').forEach((x) => x.setAttribute('aria-pressed', String(x.dataset.f === S.time)));
-  } else {
-    S[f] = !S[f]; b.setAttribute('aria-pressed', String(S[f]));
-  }
-  S.limit = 80;
-  renderSeances();
+  if (['now', 'tonight', 'from'].includes(f)) S.mode = S.mode === f && f !== 'from' ? 'all' : f;
+  else if (f === 'tomorrow') { S.tomorrow = !S.tomorrow; if (S.tomorrow && S.mode === 'now') S.mode = 'all'; }
+  else S[f] = !S[f];
+  S.limit = 30; syncChips(); renderSeances();
 });
-$('#radius').addEventListener('change', (e) => { S.radius = +e.target.value; renderAll(); });
+$('#from-time').addEventListener('change', (e) => { if (e.target.value) { S.fromTime = e.target.value; store.set('fromTime', S.fromTime); S.limit = 30; syncChips(); renderSeances(); } });
+$('#from-picker').addEventListener('click', (e) => {
+  const q = e.target.closest('[data-t]'); if (!q) return;
+  S.fromTime = q.dataset.t; $('#from-time').value = S.fromTime; store.set('fromTime', S.fromTime); S.limit = 30; syncChips(); renderSeances();
+});
+$('#radius').addEventListener('change', (e) => { S.radius = +e.target.value; S.limit = 30; renderAll(); });
 $('#btn-locate').addEventListener('click', () => locate(false));
 document.querySelectorAll('.tabs button').forEach((b) => b.addEventListener('click', () => {
   document.querySelectorAll('.tabs button').forEach((x) => x.classList.toggle('on', x === b));
@@ -360,13 +541,16 @@ document.querySelectorAll('.tabs button').forEach((b) => b.addEventListener('cli
 }));
 $('#sheet').addEventListener('close', () => { $('#sheet-body').innerHTML = ''; });
 
-// ---------- démarrage ----------
+// ================= démarrage =================
 (async function init() {
+  applyTheme();
+  $('#from-time').value = S.fromTime;
+  syncChips();
   try {
     const r = await fetch('data/seances.json', { cache: 'no-cache' });
     S.data = await r.json();
   } catch {
-    $('#seances-list').innerHTML = '<p class="empty">Impossible de charger les séances.</p>';
+    $('#seances-grid').innerHTML = '<p class="empty">Impossible de charger les séances.</p>';
     return;
   }
   S.data.cinemaById = Object.fromEntries(S.data.cinemas.map((c) => [c.id, c]));
@@ -375,6 +559,9 @@ $('#sheet').addEventListener('close', () => { $('#sheet-body').innerHTML = ''; }
   const g = new Date(S.data.generatedAt);
   $('#updated').textContent = 'Mis à jour le ' + g.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' }) + ' à ' + g.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }) + '.';
   renderAll();
-  locate(true);
+  // position : automatique si déjà autorisée, sinon on attend que tu touches le bouton
+  let granted = store.get('geoOk', false);
+  try { const p = await navigator.permissions?.query({ name: 'geolocation' }); if (p) granted = p.state === 'granted'; } catch { /* Safari ancien */ }
+  if (granted) locate(true);
   setInterval(renderSeances, 60000);
 })();

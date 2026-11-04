@@ -1,35 +1,37 @@
 <!doctype html>
-<html lang="fr">
+<html lang="fr" data-theme="light">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#0E0E10">
+<meta name="theme-color" content="#ECE9E4">
 <meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="Ciné">
 <title>Ciné Illimité</title>
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" href="icon-192.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,500..900&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css?v=3">
 </head>
 <body>
 <main id="app">
+
+  <!-- SÉANCES -->
   <section id="view-seances" class="view active" aria-labelledby="t-seances">
     <header class="top">
       <div>
         <span class="kicker" id="now-label"></span>
-        <h1 id="t-seances">Près de toi</h1>
+        <h1 id="t-seances" class="display">Près de toi</h1>
       </div>
-      <button class="round" id="btn-locate" aria-label="Me géolocaliser">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/><circle cx="12" cy="12" r="8"/></svg>
-      </button>
     </header>
     <div class="pad">
-      <div class="loc">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 21s-7-6.2-7-11a7 7 0 0 1 14 0c0 4.8-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/></svg>
-        <span id="loc-label">Paris 12e</span>
+      <div class="loc" id="loc">
+        <button class="loc-btn" id="btn-locate">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 21s-7-6.2-7-11a7 7 0 0 1 14 0c0 4.8-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/></svg>
+          <span class="loc-txt"><b id="loc-label">Paris 12e</b><small id="loc-sub">Touche pour utiliser ta position</small></span>
+        </button>
         <label class="sr" for="radius">Rayon</label>
         <select id="radius">
           <option value="1.5">1,5 km</option>
@@ -38,43 +40,64 @@
           <option value="50">Tout Paris</option>
         </select>
       </div>
+      <div id="geo-help" class="help" hidden></div>
       <div class="chips" id="chips" role="group" aria-label="Filtres">
-        <button data-f="soon" aria-pressed="true">Dans l'heure</button>
-        <button data-f="today" aria-pressed="false">Aujourd'hui</button>
+        <button data-f="now" aria-pressed="true">Maintenant</button>
         <button data-f="tonight" aria-pressed="false">Ce soir</button>
+        <button data-f="from" aria-pressed="false" id="chip-from">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+          <span id="chip-from-label">Dès…</span></button>
         <button data-f="tomorrow" aria-pressed="false">Demain</button>
         <button data-f="vo" aria-pressed="false">VO</button>
+        <button data-f="indie" aria-pressed="false">Salles indé</button>
         <button data-f="list" aria-pressed="false">Ma liste</button>
         <button data-f="premium" aria-pressed="false">Dolby / IMAX</button>
       </div>
-      <p class="note"><span class="dot"></span>Salles qui acceptent la carte UGC Illimité</p>
+      <div class="from-picker" id="from-picker" hidden>
+        <label for="from-time">À partir de</label>
+        <input type="time" id="from-time" value="19:00" step="900">
+        <div class="quick">
+          <button data-t="18:00">18h</button><button data-t="19:00">19h</button><button data-t="20:00">20h</button><button data-t="21:00">21h</button>
+        </div>
+      </div>
+      <p class="note"><span class="dot"></span><span id="count-label">Salles qui acceptent ta carte UGC Illimité</span></p>
     </div>
-    <div class="pad list" id="seances-list"></div>
+    <div class="pad grid" id="seances-grid"></div>
   </section>
 
+  <!-- POUR TOI -->
   <section id="view-pourtoi" class="view" aria-labelledby="t-pourtoi">
-    <header class="top"><div><span class="kicker" id="pt-kicker">Selon tes goûts</span><h1 id="t-pourtoi">Pour toi</h1></div></header>
+    <header class="top"><div><span class="kicker" id="pt-kicker">Selon tes goûts</span><h1 id="t-pourtoi" class="display">Pour toi</h1></div></header>
     <div class="pad stack" id="pourtoi"></div>
   </section>
 
-  <section id="view-journal" class="view" aria-labelledby="t-journal">
-    <header class="top"><div><span class="kicker" id="j-kicker"></span><h1 id="t-journal">Journal</h1></div></header>
-    <div class="pad stack" id="journal"></div>
+  <!-- HISTORIQUE -->
+  <section id="view-histo" class="view" aria-labelledby="t-histo">
+    <header class="top"><div><span class="kicker">Tes films vus</span><h1 id="t-histo" class="display">Historique</h1></div></header>
+    <div class="pad stack" id="histo"></div>
   </section>
 
-  <footer class="credits">Séances : AlloCiné · Bandes-annonces : TMDB. <span id="updated"></span><br>This product uses the TMDB API but is not endorsed or certified by TMDB.</footer>
+  <!-- CARTE -->
+  <section id="view-carte" class="view" aria-labelledby="t-carte">
+    <header class="top"><div><span class="kicker" id="c-kicker"></span><h1 id="t-carte" class="display">Ma carte</h1></div></header>
+    <div class="pad stack" id="carte"></div>
+  </section>
+
+  <footer class="credits">Séances et avis : AlloCiné · Bandes-annonces : TMDB · Salles : paris-cine.info. <span id="updated"></span><br>This product uses the TMDB API but is not endorsed or certified by TMDB.</footer>
 </main>
 
 <nav class="tabs" aria-label="Navigation principale">
-  <button data-v="seances" class="on"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 9h18M8 5v4M16 5v4"/></svg>Séances</button>
-  <button data-v="pourtoi"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 3l2.6 5.6 6 .7-4.5 4.1 1.2 6L12 16.4 6.7 19.4l1.2-6L3.4 9.3l6-.7z"/></svg>Pour toi</button>
-  <button data-v="journal"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M5 4h11a3 3 0 0 1 3 3v13H8a3 3 0 0 1-3-3z"/><path d="M9 8h6M9 12h6"/></svg>Journal</button>
+  <button data-v="seances" class="on" aria-label="Séances"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 9h18M8 5v4M16 5v4"/></svg><span>Séances</span></button>
+  <button data-v="pourtoi" aria-label="Pour toi"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 3c1 4 5 5 5 10a5 5 0 0 1-10 0c0-2 1-3 2-4 0 2 1 3 2 3 0-3-1-6 1-9z"/></svg><span>Pour toi</span></button>
+  <button data-v="histo" aria-label="Historique"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5M12 7v5l3 3"/></svg><span>Historique</span></button>
+  <button data-v="carte" aria-label="Ma carte"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="2" y="5" width="20" height="14" rx="3"/><path d="M2 10h20M6 15h4"/></svg><span>Ma carte</span></button>
 </nav>
 
 <dialog id="sheet" aria-labelledby="f-title">
   <div id="sheet-body"></div>
 </dialog>
 
-<script src="app.js"></script>
+<div id="toast" role="status" aria-live="polite"></div>
+<script src="app.js?v=3"></script>
 </body>
 </html>
