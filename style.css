@@ -327,3 +327,8 @@ dialog::backdrop{background:rgba(0,0,0,.6)}
 .nudge .x{background:none;border:none;color:var(--dark-mut);font-size:16px;padding:6px}
 #view-seances .top{justify-content:center;text-align:center}
 #view-seances .top h1{font-size:54px}
+
+.fav-bar{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px;align-items:center}
+.fav-bar button{height:34px;padding:0 14px;border-radius:999px;border:1px solid var(--line);background:var(--surface);font-size:13px;font-weight:600;color:inherit}
+.fav-bar button.add{background:none;border-style:dashed}
+.fav-bar span{font-size:13px;color:var(--mut)}

@@ -1,6 +1,6 @@
 'use strict';
 // Numéro de version : doit être égal au ?v= de app.js dans index.html (à augmenter à chaque mise à jour)
-const APP_VERSION = 15;
+const APP_VERSION = 16;
 
 // ================= état =================
 const DEFAULT_POS = { lat: 48.8396, lng: 2.3958, label: 'Paris 12e' };
@@ -21,7 +21,7 @@ const S = {
   mode: 'now', // now | tonight | from | all
   fromTime: store.get('fromTime', '19:00'),
   tomorrow: false,
-  vo: false, indie: false, list: false, premium: false,
+  vo: false, indie: false, list: false, premium: false, fav: false,
   radius: 3,
   limit: 30,
   liste: new Set(store.get('liste', [])),
@@ -124,7 +124,7 @@ function filtered() {
   const nowMs = Date.now() - 5 * 60000;
   return S.data.seances.filter((s) => {
     const c = cinema(s.c); if (!c) return false;
-    if (S.cine) { if (s.c !== S.cine) return false; } else if (c.km > S.radius) return false;
+    if (S.cine) { if (s.c !== S.cine) return false; } else if (S.fav) { if (!S.pins.includes(s.c)) return false; } else if (c.km > S.radius) return false;
     if (s.t.slice(0, 10) !== day) return false;
     if (s.t.slice(11, 16) < from) return false;
     if (asDate(s.t).getTime() < nowMs) return false;
@@ -725,7 +725,7 @@ function openCinema(cid) {
       <h2 id="f-title">${esc(c.name)}</h2>
       <p>${esc(c.cp)} Paris · ${fmtDist(c.km)} · ${trajet(c.km)}${isIndie(c) ? ' · salle indé' : ''}${c.extra ? ' · supplément ' + esc(c.extra) : ''}</p>
       <div class="row-actions"><a class="btn pri" href="${esc(mapsUrl(c))}" target="_blank" rel="noopener">Itinéraire</a>${c.addr ? `<span style="font-size:12px;color:var(--dark-mut);align-self:center">${esc(c.addr)}</span>` : ''}</div>
-      <button class="pin-toggle" id="pin-toggle" aria-pressed="${S.pins.includes(cid)}">${S.pins.includes(cid) ? '★ Dans les filtres de l\'accueil' : '☆ Ajouter aux filtres de l\'accueil'}</button>
+      <button class="pin-toggle" id="pin-toggle" aria-pressed="${S.pins.includes(cid)}">${S.pins.includes(cid) ? '★ Dans mes cinémas favoris' : '☆ Ajouter à mes cinémas favoris'}</button>
     </div>
     <div class="sheet-body">
       <div class="days" role="group" aria-label="Jour">${days.map((d) => `<button data-day="${d}" aria-pressed="${d === cur}">${dayLabel(d)}</button>`).join('')}</div>
@@ -748,7 +748,7 @@ function openCinema(cid) {
     root.querySelectorAll('[data-cf]').forEach((b) => (b.onclick = () => { vo = !vo; paint(); }));
     $('#pin-toggle', root).onclick = () => {
       S.pins = S.pins.includes(cid) ? S.pins.filter((x) => x !== cid) : [...S.pins, cid];
-      store.set('pins', S.pins); renderPins(); renderSeances(); paint();
+      store.set('pins', S.pins); renderPins(); renderFavBar(); renderSeances(); paint();
     };
     root.querySelectorAll('[data-from]').forEach((b) => (b.onclick = () => { from = b.dataset.from; paint(); }));
     root.querySelectorAll('.crow').forEach((b) => (b.onclick = () => openFilm(b.dataset.film, b.dataset.day)));
@@ -830,6 +830,7 @@ document.addEventListener('click', (e) => {
   if (e.target.closest('#add-open')) { S.showAdd = true; renderHisto(); $('#add-title').focus(); return; }
   if (e.target.closest('#add-cancel')) { S.showAdd = false; renderHisto(); return; }
   if (e.target.closest('#add-ok')) { addManual(); return; }
+  if (e.target.closest('#fav-add')) { const q = $('#q'); q.value = ''; q.placeholder = 'Nom du cinéma à ajouter…'; q.focus(); q.scrollIntoView({ block: 'center' }); toast('Cherche la salle, puis « Ajouter à mes cinémas favoris »'); return; }
   const cineBtn = e.target.closest('[data-cine]');
   if (cineBtn) { openCinema(cineBtn.dataset.cine); return; }
   if (!e.target.closest('.search')) closeSearch();
@@ -850,6 +851,18 @@ function syncChips() {
   });
   $('#chip-from-label').textContent = S.mode === 'from' ? 'Dès ' + S.fromTime.replace(':', 'h') : 'Dès…';
   $('#from-picker').hidden = S.mode !== 'from';
+  renderFavBar();
+}
+// barre « Favoris » : tes salles préférées, touche-en une pour voir sa fiche
+function renderFavBar() {
+  const bar = $('#fav-bar'); if (!bar) return;
+  bar.hidden = !S.fav;
+  if (!S.fav) return;
+  const list = S.pins.map((id) => cinema(id)).filter(Boolean);
+  bar.innerHTML = (list.length
+    ? list.map((c) => `<button data-cine="${c.id}">${esc(shortName(c))}</button>`).join('')
+    : '<span>Aucun cinéma favori pour l\'instant.</span>')
+    + '<button class="add" id="fav-add">+ Ajouter un cinéma</button>';
 }
 $('#chips').addEventListener('click', (e) => {
   const b = e.target.closest('button'); if (!b) return;
@@ -862,6 +875,7 @@ $('#chips').addEventListener('click', (e) => {
   if (['now', 'tonight', 'from'].includes(f)) S.mode = S.mode === f && f !== 'from' ? 'all' : f;
   else if (f === 'tomorrow') { S.tomorrow = !S.tomorrow; if (S.tomorrow && S.mode === 'now') S.mode = 'all'; }
   else S[f] = !S[f];
+  if (f === 'fav' && S.fav) { S.cine = null; renderPins(); }
   S.limit = 30; syncChips(); renderSeances();
 });
 $('#from-time').addEventListener('change', (e) => { if (e.target.value) { S.fromTime = e.target.value; store.set('fromTime', S.fromTime); S.limit = 30; syncChips(); renderSeances(); } });
