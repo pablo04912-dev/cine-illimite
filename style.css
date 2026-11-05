@@ -381,3 +381,21 @@ button.act{border:none;font:inherit;cursor:pointer}
 .alert-on svg{width:18px;height:18px;flex-shrink:0}
 .alert-on span{flex:1}
 .alert-on button{background:none;border:1px solid rgba(255,255,255,.25);color:var(--dark-ink);border-radius:999px;padding:5px 12px;font:inherit;font-size:12px}
+
+/* ===== carrousel de l'accueil ===== */
+.hero-wrap{margin-bottom:14px}
+.hero-car{display:flex;gap:12px;overflow-x:auto;scroll-snap-type:x mandatory;margin:0 -18px;padding:0 18px;scrollbar-width:none;-webkit-overflow-scrolling:touch}
+.hero-car::-webkit-scrollbar{display:none}
+.hslide{flex:0 0 100%;scroll-snap-align:center;min-height:210px}
+.hcard{background:var(--dark);color:var(--dark-ink);border-radius:var(--r);padding:16px;display:flex;flex-direction:column;gap:10px}
+.hk{font-size:11px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--acc)}
+.hrow{display:flex;align-items:center;gap:12px;background:none;border:none;padding:0;color:inherit;text-align:left;font:inherit}
+.hrow i{width:34px;height:50px;border-radius:8px;background:#2A2A30 center/cover no-repeat;flex-shrink:0}
+.hrow span{display:flex;flex-direction:column;gap:2px;min-width:0}
+.hrow b{font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.hrow small{font-size:12px;color:var(--dark-mut);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.hero-dots{display:flex;justify-content:center;gap:6px;margin-top:10px}
+.hero-dots i{width:6px;height:6px;border-radius:50%;background:var(--line);transition:width .2s}
+.hero-dots i.on{width:18px;border-radius:999px;background:var(--ink)}
+.more-chips{margin-top:8px}
+.more-chip{border-style:dashed!important}

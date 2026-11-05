@@ -165,3 +165,57 @@ window.bandNote = (id) => {
   if (!notes.length) return null;
   return { avg: notes.reduce((a, b) => a + b, 0) / notes.length, n: notes.length };
 };
+
+// ================= Carrousel de l'accueil (glisser à gauche / à droite) =================
+function heroRow(s, f, sub) {
+  return `<button class="hrow" data-film="${esc(s.f)}" data-day="${s.t.slice(0, 10)}"><i style="${bg(f.poster)}"></i><span><b>${esc(f.title)}</b><small>${sub}</small></span></button>`;
+}
+function renderHero() {
+  const wrap = document.getElementById('hero-wrap'); if (!wrap || !S.data) return;
+  if (S.sv !== 'all') { wrap.hidden = true; return; }
+  const slides = [];
+  const nowMs = Date.now();
+  // 1. ton film du jour
+  const top = topPick();
+  if (top) {
+    const { id, f, n } = top;
+    slides.push(`<button class="feature hslide" data-film="${id}" data-day="${n ? n.t.slice(0, 10) : ''}">
+      <div class="in">
+        <span class="bk">Ton film du jour · ${matchPct(f)} %</span>
+        <span class="bt">${esc(f.title)}</span>
+        <span class="bs">${esc([f.director, (f.genres || []).slice(0, 2).join(', ')].filter(Boolean).join(' · '))}</span>
+        ${n ? `<span class="bs"><b>${quand(n.t)} · ${esc(shortName(cinema(n.c)))}</b></span>` : ''}
+      </div>
+      <div class="img" style="${bg(f.poster)}"></div>
+    </button>`);
+  }
+  // 2. ma liste : prochaine séance de chaque film
+  const liste = [...S.liste].map((id) => ({ id, f: S.data.films[id], n: upcomingNear(id, Math.max(S.radius, 5)) || upcomingNear(id, 50) }))
+    .filter((x) => x.f && x.n).sort((a, b) => a.n.t.localeCompare(b.n.t)).slice(0, 4);
+  if (liste.length) slides.push(`<div class="hcard hslide"><span class="hk">Ma liste</span>${liste.map((x) => heroRow(x.n, x.f, `${quand(x.n.t)} · ${esc(shortName(cinema(x.n.c)))}`)).join('')}</div>`);
+  // 3. dernières chances (films de ta liste qui partent)
+  const urgent = (window.computeAlerts?.() || []).filter((a) => a.urgent).slice(0, 3);
+  if (urgent.length) slides.push(`<div class="hcard hslide"><span class="hk">Dernière chance</span>${urgent.map((a) => `<button class="hrow" data-film="${esc(a.f)}"><i style="${bg(a.poster)}"></i><span><b>${esc(a.title)}</b><small>${esc(a.text)}</small></span></button>`).join('')}</div>`);
+  // 4. avant-premières et événements des 7 prochains jours
+  const until = nowMs + 7 * 86400000;
+  const seen = new Set();
+  const evs = S.data.seances.filter((s) => (s.p || s.ev) && cinema(s.c) && asDate(s.t).getTime() > nowMs && asDate(s.t).getTime() < until)
+    .sort((a, b) => (b.ev ? 1 : 0) - (a.ev ? 1 : 0) || a.t.localeCompare(b.t))
+    .filter((s) => { const k = s.f + (s.ev || ''); if (seen.has(k)) return false; seen.add(k); return true; })
+    .slice(0, 4).sort((a, b) => a.t.localeCompare(b.t));
+  if (evs.length) slides.push(`<div class="hcard hslide"><span class="hk">Avant-premières &amp; événements</span>${evs.map((s) => heroRow(s, S.data.films[s.f], `${s.ev ? esc(s.ev.slice(0, 60)) : 'Avant-première'} · ${quand(s.t)} · ${esc(shortName(cinema(s.c)))}`)).join('')}</div>`);
+  if (!slides.length) { wrap.hidden = true; return; }
+  const html = slides.join('');
+  const car = document.getElementById('hero-car');
+  if (car._sig !== html) { // pas de redessin inutile : sinon le carrousel revient au début
+    car._sig = html; car.innerHTML = html;
+    document.getElementById('hero-dots').innerHTML = slides.length > 1 ? slides.map((_, i) => `<i class="${i === 0 ? 'on' : ''}"></i>`).join('') : '';
+    car.scrollLeft = 0;
+  }
+  wrap.hidden = false;
+}
+document.getElementById('hero-car')?.addEventListener('scroll', (e) => {
+  const car = e.currentTarget; const i = Math.round(car.scrollLeft / Math.max(1, car.clientWidth));
+  document.querySelectorAll('#hero-dots i').forEach((d, k) => d.classList.toggle('on', k === i));
+}, { passive: true });
+window.renderHero = renderHero;

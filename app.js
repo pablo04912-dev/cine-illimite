@@ -1,6 +1,6 @@
 'use strict';
 // Numéro de version : doit être égal au ?v= de app.js dans index.html (à augmenter à chaque mise à jour)
-const APP_VERSION = 24;
+const APP_VERSION = 25;
 
 // ================= état =================
 const DEFAULT_POS = { lat: 48.8396, lng: 2.3958, label: 'Paris 12e' };
@@ -18,7 +18,7 @@ const S = {
   data: null,
   pos: DEFAULT_POS,
   sv: 'all', // all | classics
-  mode: 'now', // now | tonight | from | all
+  mode: 'all', // all (prochaines séances) | tonight | from
   fromTime: store.get('fromTime', '19:00'),
   tomorrow: false,
   vo: false, indie: false, list: false, premium: false, fav: false, special: false,
@@ -28,10 +28,11 @@ const S = {
   vus: store.get('vus2', []),
   carte: Object.assign({ formule: 'duo', prix: 39.9, partage: 2, plein: 14.9 }, store.get('carte', {})),
   theme: store.get('theme', 'light'),
-  pins: store.get('pins', ['C0065']), // Grand Rex épinglé par défaut
+  pins: store.get('pins', []), // cinémas favoris
   conseils: store.get('conseils', []), // films que tu conseilles à tes amis
   rappels: store.get('rappels', []) // séances pour lesquelles tu veux une notif avant
 };
+if (!store.get('mig.rex', false)) { S.pins = S.pins.filter((x) => x !== 'C0065'); store.set('pins', S.pins); store.set('mig.rex', true); }
 const $ = (s, el = document) => el.querySelector(s);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const num = (v) => parseFloat(String(v).replace(',', '.'));
@@ -114,7 +115,7 @@ const seenIds = () => new Set(S.vus.map((v) => v.f));
 
 // ================= filtres =================
 function window_() {
-  const day = S.tomorrow ? tomorrow() : today();
+  const day = S.tomorrow || S.autoTom ? tomorrow() : today();
   let from = '00:00';
   if (S.mode === 'tonight') from = '18:00';
   if (S.mode === 'from') from = S.fromTime;
@@ -283,9 +284,15 @@ function renderSeances() {
   const now = new Date();
   $('#now-label').textContent = 'Près de toi · ' + now.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'short' }) + ' · ' + now.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
   window.renderAlerts?.();
-  const groups = groupByFilm(filtered());
+  window.renderHero?.();
+  // plus aucune séance aujourd'hui (tard le soir) : on montre directement celles de demain
+  S.autoTom = false;
+  let groups = groupByFilm(filtered());
+  if (!groups.length && !S.tomorrow && S.mode !== 'from') { S.autoTom = true; groups = groupByFilm(filtered()); }
   const shown = groups.slice(0, S.limit);
-  $('#count-label').textContent = `${groups.length} film${groups.length > 1 ? 's' : ''} · salles qui acceptent ta carte UGC Illimité`;
+  $('#count-label').textContent = S.autoTom
+    ? `Plus de séance ce soir · demain : ${groups.length} film${groups.length > 1 ? 's' : ''}`
+    : `${groups.length} film${groups.length > 1 ? 's' : ''} · salles qui acceptent ta carte UGC Illimité`;
   const el = $('#seances-grid');
   if (!groups.length) {
     el.innerHTML = `<p class="empty">Aucune séance avec ces filtres.<br>Essaie un rayon plus grand ou une autre heure.</p>`;
@@ -343,6 +350,16 @@ function pairsToday(maxKm) {
   for (const p of out) { const k = [p.a.f, p.b.f].sort().join(); if (seen.has(k)) continue; seen.add(k); res.push(p); if (res.length === 3) break; }
   return res;
 }
+function topPick() {
+  const maxKm = Math.max(S.radius, 3);
+  const vus = seenIds();
+  const d0 = today();
+  const auj = new Set(S.data.seances.filter((s) => s.t.startsWith(d0) && asDate(s.t) > Date.now() && cinema(s.c)?.km <= maxKm).map((s) => s.f));
+  const films = Object.entries(S.data.films).filter(([id]) => !vus.has(id) && upcomingNear(id, maxKm));
+  films.sort((a, b) => score(b[1]) + (auj.has(b[0]) ? 0.15 : 0) - score(a[1]) - (auj.has(a[0]) ? 0.15 : 0));
+  const top = films.find(([id]) => auj.has(id)) || films[0];
+  return top ? { id: top[0], f: top[1], n: upcomingNear(top[0], maxKm), maxKm } : null;
+}
 function renderPourToi() {
   const maxKm = Math.max(S.radius, 3);
   const vus = seenIds();
@@ -363,6 +380,8 @@ function renderPourToi() {
   const mini = ([id, f]) => { const n = upcomingNear(id, maxKm); return `<button class="mini" data-film="${id}" data-day="${n ? n.t.slice(0, 10) : ''}"><i style="${bg(f.poster)}"></i><b>${esc(f.title)}</b><small>${n ? quand(n.t) : ''}</small></button>`; };
 
   let html = '';
+  if (listed.length) html += `<div class="stack" style="gap:10px"><h2>Ma liste</h2><div class="hscroll">${listed.map(mini).join('')}</div></div>`;
+  else html += `<div class="card"><h2>Ma liste</h2><p class="syn" style="margin-top:6px;color:var(--mut)">Vide pour l'instant : dans la fiche d'un film, touche « + Ma liste ».</p></div>`;
   if (top) {
     const [id, f] = top; const n = upcomingNear(id, maxKm);
     html += `<button class="feature" data-film="${id}" data-day="${n ? n.t.slice(0, 10) : ''}">
@@ -375,7 +394,6 @@ function renderPourToi() {
       <div class="img" style="${bg(f.poster)}"></div>
     </button>`;
   }
-  if (listed.length) html += `<div class="stack" style="gap:10px"><h2>Ma liste</h2><div class="hscroll">${listed.map(mini).join('')}</div></div>`;
   html += `<h2>Recommandés</h2>` + rest.slice(0, 8).map(([id, f]) => {
     const n = upcomingNear(id, maxKm);
     return `<button class="banner" data-film="${id}" data-day="${n ? n.t.slice(0, 10) : ''}" style="${bg(f.poster)}">
@@ -749,6 +767,7 @@ function closeSearch() { $('#q-results').hidden = true; }
 // les salles épinglées deviennent des filtres à côté de VO, Salles indé, Ma liste…
 function renderPins() {
   if (S.cine && !S.pins.includes(S.cine)) S.cine = null;
+  return; // les favoris passent par le bouton « Favoris » (plus de bouton par salle)
   $('#pin-chips').innerHTML = S.pins.map((id) => cinema(id)).filter(Boolean).map((c) =>
     `<button data-pinf="${c.id}" aria-pressed="${S.cine === c.id}">★ ${esc(shortName(c))}</button>`).join('');
 }
@@ -893,12 +912,13 @@ document.addEventListener('input', (e) => {
   if (t) { S.vus[+t.dataset.rev].review = t.value; clearTimeout(t._t); t._t = setTimeout(() => store.set('vus2', S.vus), 300); }
 });
 function syncChips() {
-  document.querySelectorAll('#chips button[data-f]').forEach((b) => {
+  document.querySelectorAll('#filters button[data-f]').forEach((b) => {
     const f = b.dataset.f;
-    const on = ['now', 'tonight', 'from'].includes(f) ? S.mode === f : f === 'tomorrow' ? S.tomorrow : S[f];
+    const on = ['tonight', 'from'].includes(f) ? S.mode === f : f === 'tomorrow' ? S.tomorrow : f === 'more' ? S.moreOpen || S.premium || S.special : S[f];
     b.setAttribute('aria-pressed', String(!!on));
   });
-  $('#chip-from-label').textContent = S.mode === 'from' ? 'Dès ' + S.fromTime.replace(':', 'h') : 'Dès…';
+  $('#chip-from-label').textContent = S.mode === 'from' ? 'Dès ' + S.fromTime.replace(':', 'h') : 'Horaire';
+  $('#more-chips').hidden = !(S.moreOpen || S.premium || S.special);
   $('#from-picker').hidden = S.mode !== 'from';
   renderFavBar();
 }
@@ -921,11 +941,16 @@ $('#chips').addEventListener('click', (e) => {
     S.limit = 30; renderPins(); syncChips(); renderSeances(); return;
   }
   const f = b.dataset.f;
-  if (['now', 'tonight', 'from'].includes(f)) S.mode = S.mode === f && f !== 'from' ? 'all' : f;
-  else if (f === 'tomorrow') { S.tomorrow = !S.tomorrow; if (S.tomorrow && S.mode === 'now') S.mode = 'all'; }
+  if (f === 'more') { S.moreOpen = !S.moreOpen; syncChips(); return; }
+  if (['tonight', 'from'].includes(f)) S.mode = S.mode === f && f !== 'from' ? 'all' : f;
+  else if (f === 'tomorrow') S.tomorrow = !S.tomorrow;
   else S[f] = !S[f];
   if (f === 'fav' && S.fav) { S.cine = null; renderPins(); }
   S.limit = 30; syncChips(); renderSeances();
+});
+$('#more-chips').addEventListener('click', (e) => {
+  const b = e.target.closest('button[data-f]'); if (!b) return;
+  S[b.dataset.f] = !S[b.dataset.f]; S.limit = 30; syncChips(); renderSeances();
 });
 $('#from-time').addEventListener('change', (e) => { if (e.target.value) { S.fromTime = e.target.value; store.set('fromTime', S.fromTime); S.limit = 30; syncChips(); renderSeances(); } });
 $('#from-picker').addEventListener('click', (e) => {
