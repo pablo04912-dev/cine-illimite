@@ -1,6 +1,6 @@
 'use strict';
 // Numéro de version : doit être égal au ?v= de app.js dans index.html (à augmenter à chaque mise à jour)
-const APP_VERSION = 18;
+const APP_VERSION = 19;
 
 // ================= état =================
 const DEFAULT_POS = { lat: 48.8396, lng: 2.3958, label: 'Paris 12e' };
@@ -263,6 +263,7 @@ function renderSeances() {
   }
   const now = new Date();
   $('#now-label').textContent = 'Près de toi · ' + now.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'short' }) + ' · ' + now.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+  window.renderAlerts?.();
   const groups = groupByFilm(filtered());
   const shown = groups.slice(0, S.limit);
   $('#count-label').textContent = `${groups.length} film${groups.length > 1 ? 's' : ''} · salles qui acceptent ta carte UGC Illimité`;
@@ -930,6 +931,7 @@ document.addEventListener('visibilitychange', async () => {
   if (await checkForUpdate()) return;
   refreshData();
   renderSeances();
+  setTimeout(() => window.popAlerts?.(), 1200);
 });
 
 // ================= démarrage =================
@@ -955,8 +957,12 @@ document.addEventListener('visibilitychange', async () => {
   let granted = store.get('geoOk', false);
   try { const p = await navigator.permissions?.query({ name: 'geolocation' }); if (p) granted = p.state === 'granted'; } catch { /* Safari ancien */ }
   if (granted) locate(true);
+  setTimeout(() => window.popAlerts?.(), 1200);
   setInterval(renderSeances, 60000);
 })();
 
 // pas de zoom (pincement ou double-tap) : c'est une appli, pas une page web
-['gesturestart', 'gesturechange'].forEach((t) => document.addEventListener(t, (e) => e.preventDefault(), { passive: false }));
+['gesturestart', 'gesturechange', 'gestureend'].forEach((t) => document.addEventListener(t, (e) => e.preventDefault(), { passive: false }));
+document.addEventListener('touchmove', (e) => { if (e.touches.length > 1 || (e.scale && e.scale !== 1)) e.preventDefault(); }, { passive: false });
+let lastTouchEnd = 0;
+document.addEventListener('touchend', (e) => { const n = Date.now(); if (n - lastTouchEnd < 300 && !e.target.closest('input,textarea,select')) e.preventDefault(); lastTouchEnd = n; }, { passive: false });

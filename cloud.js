@@ -127,6 +127,7 @@ async function loadFriends() {
   }
   C.friends = out;
   renderCompte();
+  window.renderAlerts?.();
 }
 async function startSync(u) {
   C.user = u; C.ready = false; renderCompte();
