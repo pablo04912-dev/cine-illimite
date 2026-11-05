@@ -22,7 +22,7 @@ const auth = getAuth(app);
 auth.languageCode = 'fr';
 const db = getFirestore(app);
 
-const SYNC_KEYS = ['liste', 'vus2', 'carte', 'pins', 'fromTime', 'conseils'];
+const SYNC_KEYS = ['liste', 'vus2', 'carte', 'pins', 'fromTime', 'conseils', 'avenir'];
 const DEVICE = store.get('device', null) || (() => { const d = Math.random().toString(36).slice(2); store.set('device', d); return d; })();
 const C = { user: null, ready: false, profile: null, friends: [], adding: false, unsub: null, applying: false };
 window.CLOUD = C;
@@ -44,6 +44,7 @@ function applyItems(items) {
   S.pins = store.get('pins', ['C0065']);
   S.fromTime = store.get('fromTime', '19:00');
   S.conseils = store.get('conseils', []);
+  S.avenir = store.get('avenir', []);
   const ft = document.getElementById('from-time'); if (ft) ft.value = S.fromTime;
   if (S.data) { buildTaste(); renderAll(); syncChips(); }
 }
@@ -133,6 +134,7 @@ async function loadFriends() {
   C.friends = out;
   renderCompte();
   window.renderAlerts?.();
+  window.renderActivity?.();
 }
 async function startSync(u) {
   C.user = u; C.ready = false; renderCompte();
@@ -336,7 +338,9 @@ window.friendsOnFilm = (id) => {
     const what = [c ? '<b class="tag">Te le conseille</b>' : '', v ? `A vu${v.rating ? ' · <b class="st">' + starsTxt(v.rating) + '</b>' : ''}` : l ? 'Veut le voir' : ''].filter(Boolean).join(' · ');
     rows.push(`<button class="friend" data-friend="${esc(f.uid)}">${avatar(f, 36)}<span class="fi"><b>${esc(f.name.split(' ')[0])}</b><small>${what}</small>${v?.review ? `<small class="rv">« ${esc(v.review)} »</small>` : ''}</span></button>`);
   }
-  return rows.length ? `<div class="card form friends-film"><h2>Tes amis</h2>${rows.join('')}</div>` : '';
+  const bn = window.bandNote?.(id);
+  const head = bn ? `<h2>Tes potes <span class="band">★ ${bn.avg.toFixed(1).replace('.', ',')}/5 · ${bn.n} note${bn.n > 1 ? 's' : ''}</span></h2>` : '<h2>Tes potes</h2>';
+  return rows.length ? `<div class="card form friends-film">${head}${rows.join('')}</div>` : '';
 };
 
 document.addEventListener('click', (e) => {

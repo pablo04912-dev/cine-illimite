@@ -231,6 +231,7 @@ async function enrichParisCine(films, seances, cinemas, prevScreens) {
       if (!s) continue;
       if (Number(st.screen_id) > 0) { s.sc = `${st.tid}:${st.screen_id}`; if (!screens[s.sc]) missing.add(s.sc); }
       if (st.book) s.bk = st.book;
+      if (st.com) s.ev = String(st.com).trim().slice(0, 160); // rencontre, débat, ciné-club…
     }
   }
   for (const key of missing) {
@@ -241,6 +242,38 @@ async function enrichParisCine(films, seances, cinemas, prevScreens) {
   }
   console.log(`paris-cine : salles précisées pour ${want.length} films, ${Object.keys(screens).length} écrans connus`);
   return screens;
+}
+
+// Films à venir en France (sorties des 3 prochains mois), avec leur vraie date de sortie française
+async function fetchUpcoming(prev) {
+  if (!TMDB_TOKEN) return prev || [];
+  const today = parisDate(0);
+  const until = new Date(Date.now() + 90 * 86400000).toISOString().slice(0, 10);
+  const known = new Map((prev || []).map((u) => [u.id, u]));
+  const list = [];
+  const seen = new Set();
+  for (let page = 1; page <= 4; page++) {
+    const r = await tmdb(`/discover/movie?region=FR&language=fr-FR&sort_by=popularity.desc&with_release_type=3&release_date.gte=${today}&release_date.lte=${until}&page=${page}`);
+    for (const m of r?.results || []) {
+      if (seen.has(m.id) || !m.poster_path) continue;
+      seen.add(m.id);
+      let date = null;
+      const k = known.get(m.id);
+      if (k && k.checkedAt && Date.now() - k.checkedAt < 5 * 86400000) date = k.date;
+      else {
+        const rd = await tmdb(`/movie/${m.id}/release_dates`);
+        const fr = rd?.results?.find((x) => x.iso_3166_1 === 'FR');
+        const th = (fr?.release_dates || []).filter((x) => x.type === 3 || x.type === 2).map((x) => x.release_date.slice(0, 10)).sort()[0];
+        date = th || null;
+        await sleep(150);
+      }
+      if (!date || date <= today || date > until) continue;
+      list.push({ id: m.id, title: m.title, poster: `https://image.tmdb.org/t/p/w500${m.poster_path}`, date, synopsis: (m.overview || '').slice(0, 400), genres: m.genre_ids || [], pop: Math.round(m.popularity || 0), checkedAt: Date.now() });
+    }
+  }
+  list.sort((a, b) => a.date.localeCompare(b.date) || b.pop - a.pop);
+  console.log(`TMDB : ${list.length} films à venir`);
+  return list;
 }
 
 const tmdb = (path) =>
@@ -327,10 +360,12 @@ async function fetchLetterboxd() {
 const cinemas = JSON.parse(await readFile(new URL('cinemas.json', root), 'utf8'));
 let previous = {};
 let prevScreens = {};
+let prevUpcoming = [];
 try {
   const old = JSON.parse(await readFile(new URL('data/seances.json', root), 'utf8'));
   previous = old.films || {};
   prevScreens = old.screens || {};
+  prevUpcoming = old.upcoming || [];
 } catch { /* premier lancement */ }
 // PC_ONLY=1 : ne refait que la partie paris-cine.info sur les données existantes (pour tester)
 if (process.env.PC_ONLY) {
@@ -339,6 +374,13 @@ if (process.env.PC_ONLY) {
   old.screens = await enrichParisCine(old.films, old.seances, cinemas, prevScreens);
   await writeFile(new URL('data/seances.json', root), JSON.stringify(old));
   console.log('paris-cine seul : écrit.');
+  process.exit(0);
+}
+if (process.env.UPCOMING_ONLY) {
+  const old = JSON.parse(await readFile(new URL('data/seances.json', root), 'utf8'));
+  old.upcoming = await fetchUpcoming(old.upcoming || []);
+  await writeFile(new URL('data/seances.json', root), JSON.stringify(old));
+  console.log('à venir seul : écrit.');
   process.exit(0);
 }
 const { films, seances } = await fetchShowtimes(cinemas);
@@ -359,9 +401,11 @@ await enrichReviews(films, seances);
 let screens = prevScreens;
 try { screens = await enrichParisCine(films, seances, cinemas, prevScreens); } catch (e) { console.warn('paris-cine indisponible : ' + e.message); }
 const journal = await fetchLetterboxd();
+let upcoming = prevUpcoming;
+try { upcoming = await fetchUpcoming(prevUpcoming); } catch (e) { console.warn('à venir indisponible : ' + e.message); }
 await mkdir(new URL('data/', root), { recursive: true });
 await writeFile(
   new URL('data/seances.json', root),
-  JSON.stringify({ generatedAt: new Date().toISOString(), cinemas, films, seances, screens, journal })
+  JSON.stringify({ generatedAt: new Date().toISOString(), cinemas, films, seances, screens, journal, upcoming })
 );
 console.log('data/seances.json écrit.');

@@ -1,6 +1,6 @@
 'use strict';
 // Numéro de version : doit être égal au ?v= de app.js dans index.html (à augmenter à chaque mise à jour)
-const APP_VERSION = 21;
+const APP_VERSION = 22;
 
 // ================= état =================
 const DEFAULT_POS = { lat: 48.8396, lng: 2.3958, label: 'Paris 12e' };
@@ -21,7 +21,7 @@ const S = {
   mode: 'now', // now | tonight | from | all
   fromTime: store.get('fromTime', '19:00'),
   tomorrow: false,
-  vo: false, indie: false, list: false, premium: false, fav: false,
+  vo: false, indie: false, list: false, premium: false, fav: false, special: false,
   radius: 3,
   limit: 30,
   liste: new Set(store.get('liste', [])),
@@ -132,6 +132,7 @@ function filtered() {
     if (S.indie && !isIndie(c)) return false;
     if (S.list && !S.liste.has(s.f)) return false;
     if (S.premium && !s.x) return false;
+    if (S.special && !(s.p || s.ev)) return false;
     return true;
   });
 }
@@ -266,8 +267,13 @@ function renderClassics() {
 
 // ================= Séances =================
 function renderSeances() {
-  $('#filters').hidden = S.sv === 'classics';
-  $('#seances-grid').className = 'pad ' + (S.sv === 'classics' ? 'classics' : 'grid');
+  $('#filters').hidden = S.sv !== 'all';
+  $('#seances-grid').className = 'pad ' + (S.sv === 'classics' ? 'classics' : S.sv === 'upcoming' ? 'upcoming' : 'grid');
+  window.renderActivity?.();
+  if (S.sv === 'upcoming') {
+    $('#now-label').textContent = 'Près de toi · Prochaines sorties';
+    renderUpcoming(); return;
+  }
   if (S.sv === 'classics') {
     const now = new Date();
     $('#now-label').textContent = 'Près de toi · ' + now.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'short' });
@@ -293,6 +299,7 @@ function renderSeances() {
           <span class="badge">${s.v}</span>
           ${s.x ? `<span class="badge acc">${esc(s.x)}</span>` : ''}
           ${s.p ? '<span class="badge acc">Avant-première</span>' : ''}
+          ${s.ev && !s.p ? '<span class="badge acc">Événement</span>' : ''}
           ${S.liste.has(id) ? '<span class="badge acc">Ma liste</span>' : ''}
         </div>
         <span class="ttl">${esc(f.title)}</span>
@@ -320,9 +327,10 @@ function pairsToday(maxKm) {
   const out = [];
   for (const list of Object.values(byC)) {
     for (const a of list) {
-      const end = asDate(a.t).getTime() + (15 + runtimeMin(S.data.films[a.f].runtime)) * 60000;
+      const end = endOf(a).getTime();
       for (const b of list) {
         if (b.f === a.f) continue;
+        if (asDate(b.t) - asDate(a.t) < 90 * 60000) continue; // règle UGC : 1h30 entre deux séances
         const gap = (asDate(b.t).getTime() - end) / 60000;
         if (gap < 5 || gap > 45) continue;
         out.push({ a, b, end, gap: Math.round(gap), s: score(S.data.films[a.f]) + score(S.data.films[b.f]) - gap / 200 });
@@ -515,7 +523,7 @@ function renderCarte() {
   $('#c-plein').onchange = save;
 }
 // ================= sauvegarde / restauration =================
-const BACKUP_KEYS = ['liste', 'vus2', 'carte', 'theme', 'pins', 'fromTime', 'geoOk', 'conseils'];
+const BACKUP_KEYS = ['liste', 'vus2', 'carte', 'theme', 'pins', 'fromTime', 'geoOk', 'conseils', 'avenir'];
 async function backupData() {
   const data = { app: 'cine-illimite', version: 1, date: new Date().toISOString(), items: {} };
   for (const k of BACKUP_KEYS) { const v = store.get(k, undefined); if (v !== undefined) data.items[k] = v; }
@@ -591,6 +599,7 @@ function openFilm(id, day) {
         <span class="pick-hour">${hm(s.t)}</span>
         <span class="pick-day"><b>${dl}</b><small>${s.v}${s.x ? ' · ' + esc(s.x) : ''} · fin vers ${fin}</small></span>
       </div>
+      ${s.p || s.ev ? `<p class="evt"><b>${s.p ? 'Avant-première' : 'Séance spéciale'}</b>${s.ev ? ' · ' + esc(s.ev) : ''}</p>` : ''}
       <p class="ads">${adMin(c) ? `+${adMin(c)} min de pub · film vers ${filmStart(s).toTimeString().slice(0, 5).replace(':', 'h')}` : 'Pas de pub · le film démarre à l\'heure'}<small>estimation</small></p>
       <ul class="pick-info">
         ${scr && scr.name ? `<li><small>Salle</small><b>${esc(scr.name)}</b></li>` : ''}
@@ -632,6 +641,7 @@ function openFilm(id, day) {
         <button class="btn ${seen ? 'on' : 'dark'}" id="seen">${seen ? '✓ Vu · annuler' : "Je l'ai vu"}</button>
         <button class="btn ${conseille ? 'on' : ''}" id="conseil">${conseille ? '✓ Conseillé' : 'Conseiller'}</button>
       </div>
+      ${days.length ? '<button class="btn big dbl" id="double"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><rect x="2" y="6" width="9" height="12" rx="2"/><rect x="13" y="6" width="9" height="12" rx="2"/></svg>Double programme : enchaîner avec un 2e film</button>' : ''}
       ${window.friendsOnFilm ? window.friendsOnFilm(id) : ''}
       ${f.synopsis ? `<p class="syn">${esc(f.synopsis)}</p>` : ''}
       <h2>Séances</h2>
@@ -671,6 +681,7 @@ function openFilm(id, day) {
       }
       store.set('vus2', S.vus); paint(); renderHisto(); renderCarte(); renderPourToi();
     };
+    if ($('#double', root)) $('#double', root).onclick = () => openDouble(id);
     $('#conseil', root).onclick = () => {
       const k = S.conseils.findIndex((x) => String(x.f) === String(id));
       if (k >= 0) { S.conseils.splice(k, 1); toast('Conseil retiré'); }

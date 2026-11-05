@@ -13,7 +13,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,500..900&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=21">
+<link rel="stylesheet" href="style.css?v=22">
 </head>
 <body>
 <main id="app">
@@ -51,6 +51,7 @@
       <div class="viewseg" role="group" aria-label="Affichage">
         <button data-sv="all" aria-pressed="true">À l'affiche</button>
         <button data-sv="classics" aria-pressed="false">Classiques</button>
+        <button data-sv="upcoming" aria-pressed="false">À venir</button>
       </div>
       <div id="filters">
       <div class="chips" id="chips" role="group" aria-label="Filtres">
@@ -65,6 +66,7 @@
         <button data-f="indie" aria-pressed="false">Salles indé</button>
         <button data-f="list" aria-pressed="false">Ma liste</button>
         <button data-f="premium" aria-pressed="false">Dolby / IMAX</button>
+        <button data-f="special" aria-pressed="false">Avant-premières & événements</button>
         <span id="pin-chips" style="display:contents"></span>
       </div>
       <div class="from-picker" id="from-picker" hidden>
@@ -76,6 +78,7 @@
       </div>
       <div class="fav-bar" id="fav-bar" hidden></div>
       </div>
+      <div id="activity" class="stack activity" style="gap:10px" hidden></div>
       <p class="note"><span class="dot"></span><span id="count-label">Salles qui acceptent ta carte UGC Illimité</span></p>
     </div>
     <div class="pad grid" id="seances-grid"></div>
@@ -114,8 +117,9 @@
 </dialog>
 
 <div id="toast" role="status" aria-live="polite"></div>
-<script src="app.js?v=21"></script>
-<script src="alerts.js?v=21"></script>
-<script type="module" src="cloud.js?v=21"></script>
+<script src="app.js?v=22"></script>
+<script src="features.js?v=22"></script>
+<script src="alerts.js?v=22"></script>
+<script type="module" src="cloud.js?v=22"></script>
 </body>
 </html>

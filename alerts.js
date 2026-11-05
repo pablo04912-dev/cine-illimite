@@ -26,6 +26,13 @@ function computeAlerts() {
     const quand = n <= 0 ? `Dernière séance aujourd'hui à ${hm(last.t)}` : n === 1 ? `Dernière séance demain à ${hm(last.t)}` : `Plus que ${n} jours : dernière séance ${longDay(lastDay)}`;
     out.push({ key: `end:${id}:${lastDay}`, f: id, urgent: true, title: f.title, poster: f.poster, text: `${quand} · ${shortName(c)}` });
   }
+  // films attendus qui viennent de sortir
+  for (const u of S.avenir || []) {
+    const fid = releasedFilm(u); if (!fid) continue;
+    const n = new Set(S.data.seances.filter((s) => s.f === fid && cinema(s.c) && asDate(s.t).getTime() > nowMs).map((s) => s.c)).size;
+    out.push({ key: `out:${u.id}`, f: fid, urgent: true, title: u.title, poster: u.poster, text: `Il est sorti : à l'affiche dans ${n} salle${n > 1 ? 's' : ''} pour ta carte` });
+    if (!S.liste.has(fid)) { S.liste.add(fid); store.set('liste', [...S.liste]); }
+  }
   for (const fr of window.CLOUD?.friends || []) {
     for (const x of (fr.conseils || []).slice().reverse()) {
       if (seenIds.has(String(x.f))) continue;
