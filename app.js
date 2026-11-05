@@ -1,6 +1,6 @@
 'use strict';
 // Numéro de version : doit être égal au ?v= de app.js dans index.html (à augmenter à chaque mise à jour)
-const APP_VERSION = 12;
+const APP_VERSION = 13;
 
 // ================= état =================
 const DEFAULT_POS = { lat: 48.8396, lng: 2.3958, label: 'Paris 12e' };
@@ -495,8 +495,11 @@ function renderCarte() {
   $('#restore-file').onchange = (e) => { const f = e.target.files[0]; if (f) restoreData(f); };
   const save = () => { store.set('carte', S.carte); renderCarte(); };
   $('#c-formule').onchange = (e) => { S.carte.formule = e.target.value; const p = FORMULES[e.target.value].prix; if (p) S.carte.prix = p; save(); };
-  $('#c-prix').onchange = (e) => { S.carte.prix = num(e.target.value) || 0; S.carte.formule = 'autre'; save(); };
-  $('#c-plein').onchange = (e) => { S.carte.plein = num(e.target.value) || 0; save(); };
+  // enregistré à chaque chiffre tapé (sur iPhone, quitter l'appli clavier ouvert ne déclenche pas « change »)
+  $('#c-prix').oninput = (e) => { S.carte.prix = num(e.target.value) || 0; store.set('carte', S.carte); };
+  $('#c-plein').oninput = (e) => { S.carte.plein = num(e.target.value) || 0; store.set('carte', S.carte); };
+  $('#c-prix').onchange = save;
+  $('#c-plein').onchange = save;
 }
 // ================= sauvegarde / restauration =================
 const BACKUP_KEYS = ['liste', 'vus2', 'carte', 'theme', 'pins', 'fromTime', 'geoOk', 'conseils'];
