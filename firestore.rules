@@ -25,6 +25,11 @@ service cloud.firestore {
       allow update, delete: if signedIn() && resource.data.uid == request.auth.uid;
     }
 
+    // Abonnements aux notifications de chaque téléphone : seulement toi (le serveur passe par la clé admin)
+    match /push/{uid} {
+      allow read, write: if isMe(uid);
+    }
+
     // Demandes d'ami : A prévient B qu'il l'a ajouté
     match /invites/{to}/from/{from} {
       allow create: if isMe(from);

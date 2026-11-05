@@ -1,6 +1,6 @@
 'use strict';
 // Numéro de version : doit être égal au ?v= de app.js dans index.html (à augmenter à chaque mise à jour)
-const APP_VERSION = 22;
+const APP_VERSION = 23;
 
 // ================= état =================
 const DEFAULT_POS = { lat: 48.8396, lng: 2.3958, label: 'Paris 12e' };
@@ -29,7 +29,8 @@ const S = {
   carte: Object.assign({ formule: 'duo', prix: 39.9, partage: 2, plein: 14.9 }, store.get('carte', {})),
   theme: store.get('theme', 'light'),
   pins: store.get('pins', ['C0065']), // Grand Rex épinglé par défaut
-  conseils: store.get('conseils', []) // films que tu conseilles à tes amis
+  conseils: store.get('conseils', []), // films que tu conseilles à tes amis
+  rappels: store.get('rappels', []) // séances pour lesquelles tu veux une notif avant
 };
 const $ = (s, el = document) => el.querySelector(s);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -523,7 +524,22 @@ function renderCarte() {
   $('#c-plein').onchange = save;
 }
 // ================= sauvegarde / restauration =================
-const BACKUP_KEYS = ['liste', 'vus2', 'carte', 'theme', 'pins', 'fromTime', 'geoOk', 'conseils', 'avenir'];
+const BACKUP_KEYS = ['liste', 'vus2', 'carte', 'theme', 'pins', 'fromTime', 'geoOk', 'conseils', 'avenir', 'rappels'];
+// ================= rappels de séance (notif avant le début) =================
+const rappelKey = (s) => s.t + '|' + s.c + '|' + s.f;
+function hasRappel(s) { return (S.rappels || []).some((r) => r.k === rappelKey(s)); }
+function toggleRappel(s) {
+  const k = rappelKey(s);
+  const keep = (S.rappels || []).filter((r) => asDate(r.t).getTime() > Date.now() - 3 * 3600000);
+  if (keep.some((r) => r.k === k)) { S.rappels = keep.filter((r) => r.k !== k); toast('Rappel retiré'); }
+  else {
+    const c = cinema(s.c); const f = S.data.films[s.f];
+    const travel = S.pos && S.pos !== DEFAULT_POS ? Math.round(c.km * 13 <= 20 ? c.km * 13 : 12 + c.km * 3) : 0;
+    S.rappels = [...keep, { k, t: s.t, c: s.c, f: s.f, title: f.title, cine: c.name, ads: adMin(c), travel }];
+    toast(window.CLOUD?.push === 'on' ? 'Je te préviens avant la séance' : 'Rappel noté : active les notifications dans Profil pour le recevoir');
+  }
+  store.set('rappels', S.rappels);
+}
 async function backupData() {
   const data = { app: 'cine-illimite', version: 1, date: new Date().toISOString(), items: {} };
   for (const k of BACKUP_KEYS) { const v = store.get(k, undefined); if (v !== undefined) data.items[k] = v; }
@@ -586,9 +602,12 @@ function openFilm(id, day) {
       cal: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="3"/><path d="M3 10h18M8 3v4M16 3v4M12 13v5M9.5 15.5h5"/></svg>',
       map: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 21s-7-6.2-7-11a7 7 0 0 1 14 0c0 4.8-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/></svg>',
       tix: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M3 8a2 2 0 0 0 2-2h14a2 2 0 0 0 2 2v2a2 2 0 0 0 0 4v2a2 2 0 0 0-2 2H5a2 2 0 0 0-2-2v-2a2 2 0 0 0 0-4z"/><path d="M14 6v12" stroke-dasharray="2 2"/></svg>',
+      bell: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg>',
       app: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><rect x="6" y="2" width="12" height="20" rx="3"/><path d="M11 18h2"/></svg>'
     };
+    const rp = hasRappel(s);
     const acts = [
+      `<button class="act ${rp ? 'on' : ''}" data-rappel>${ic.bell}<span>${rp ? 'Rappel ✓' : 'Rappel'}</span></button>`,
       `<a class="act" href="${esc(gcalUrl(s))}" target="_blank" rel="noopener">${ic.cal}<span>Agenda</span></a>`,
       `<a class="act" href="${esc(mapsUrl(c))}" target="_blank" rel="noopener">${ic.map}<span>Itinéraire</span></a>`,
       c.ugc ? `<a class="act" href="https://www.ugc.fr/cinema.html?id=${c.ugc}">${ic.app}<span>Appli UGC</span></a>` : '',
@@ -689,6 +708,8 @@ function openFilm(id, day) {
       store.set('conseils', S.conseils); paint();
     };
     root.querySelectorAll('.days button').forEach((b) => (b.onclick = () => { cur = b.dataset.day; pick = null; paint(); }));
+    const rb = root.querySelector('[data-rappel]');
+    if (rb && pick != null) rb.onclick = () => { toggleRappel(all[pick]); const y = dlg.scrollTop; paint(); dlg.scrollTop = y; };
     root.querySelectorAll('[data-pick]').forEach((b) => (b.onclick = () => {
       const k = +b.dataset.pick; pick = pick === k ? null : k;
       const y = dlg.scrollTop; paint(); dlg.scrollTop = y;
@@ -933,7 +954,8 @@ async function checkForUpdate() {
     const html = await (await fetch(`index.html?check=${Date.now()}`, { cache: 'no-store' })).text();
     const m = html.match(/app\.js\?v=(\d+)/);
     if (m && Number(m[1]) > APP_VERSION) {
-      location.replace(location.pathname + '?v=' + m[1]);
+      const qp = new URLSearchParams(location.search); qp.set('v', m[1]);
+      location.replace(location.pathname + '?' + qp.toString());
       return true;
     }
   } catch { /* hors ligne */ }
@@ -982,6 +1004,10 @@ document.addEventListener('visibilitychange', async () => {
   try { const p = await navigator.permissions?.query({ name: 'geolocation' }); if (p) granted = p.state === 'granted'; } catch { /* Safari ancien */ }
   if (granted) locate(true);
   setTimeout(() => window.popAlerts?.(), 1200);
+  // ouverture depuis une notification : ?film=…&day=…
+  const qp = new URLSearchParams(location.search);
+  if (qp.get('film') && S.data.films[qp.get('film')]) openFilm(qp.get('film'), qp.get('day') || undefined);
+  else if (qp.get('notifs')) setTimeout(() => document.getElementById('bell')?.click(), 300);
   setInterval(renderSeances, 60000);
 })();
 

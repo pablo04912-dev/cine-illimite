@@ -22,7 +22,7 @@ const auth = getAuth(app);
 auth.languageCode = 'fr';
 const db = getFirestore(app);
 
-const SYNC_KEYS = ['liste', 'vus2', 'carte', 'pins', 'fromTime', 'conseils', 'avenir'];
+const SYNC_KEYS = ['liste', 'vus2', 'carte', 'pins', 'fromTime', 'conseils', 'avenir', 'rappels'];
 const DEVICE = store.get('device', null) || (() => { const d = Math.random().toString(36).slice(2); store.set('device', d); return d; })();
 const C = { user: null, ready: false, profile: null, friends: [], adding: false, unsub: null, applying: false };
 window.CLOUD = C;
@@ -45,6 +45,7 @@ function applyItems(items) {
   S.fromTime = store.get('fromTime', '19:00');
   S.conseils = store.get('conseils', []);
   S.avenir = store.get('avenir', []);
+  S.rappels = store.get('rappels', []);
   const ft = document.getElementById('from-time'); if (ft) ft.value = S.fromTime;
   if (S.data) { buildTaste(); renderAll(); syncChips(); }
 }
@@ -263,6 +264,7 @@ function renderCompte() {
       <small class="ok">${C.ready ? '✓ Synchronisé automatiquement' : 'Synchronisation…'}</small></span>
       <button class="btn sm" id="logout">Déconnexion</button>
     </div>
+    ${pushCardHtml()}
     <div class="card form">
       <h2>Amis</h2>
       ${friends || '<small style="color:var(--mut);line-height:1.5">Ajoute ton frère ou tes potes : tu verras les films qu\'ils ont vus, leurs notes, leurs avis et ce qu\'ils te conseillent.</small>'}
@@ -356,4 +358,50 @@ document.addEventListener('click', (e) => {
   }
 }, true);
 
+
+// ---------- vraies notifications (Web Push) ----------
+const VAPID_PUBLIC = 'BEXcRTvtcAJRRnsstdM6ze0jiAlpyMeEJG_ei2y8gw0EXTUBVbgTZHRAtGSobU62gDDyTbhziX5OLOZPIX36uYE';
+const pushSupported = () => 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
+const isStandalone = () => window.navigator.standalone === true || matchMedia('(display-mode: standalone)').matches;
+const b64 = (s) => { const p = '='.repeat((4 - (s.length % 4)) % 4); const r = atob((s + p).replace(/-/g, '+').replace(/_/g, '/')); return Uint8Array.from([...r].map((c) => c.charCodeAt(0))); };
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch((e) => console.warn('sw', e));
+C.push = 'unknown'; // on | off | denied | unsupported
+async function pushState() {
+  if (!pushSupported()) return 'unsupported';
+  if (Notification.permission === 'denied') return 'denied';
+  try { const reg = await navigator.serviceWorker.ready; return (await reg.pushManager.getSubscription()) ? 'on' : 'off'; } catch { return 'off'; }
+}
+async function enablePush() {
+  if (!C.user) { toast('Connecte-toi d\'abord avec Google'); return; }
+  if (!pushSupported()) { toast(isStandalone() ? 'Ton iPhone doit être en iOS 16.4 ou plus' : 'Ouvre Projo depuis son icône sur l\'écran d\'accueil'); return; }
+  const perm = await Notification.requestPermission();
+  if (perm !== 'granted') { C.push = 'denied'; renderCompte(); toast('Notifications refusées'); return; }
+  const reg = await navigator.serviceWorker.ready;
+  let sub = await reg.pushManager.getSubscription();
+  if (!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64(VAPID_PUBLIC) });
+  await setDoc(doc(db, 'push', C.user.uid), { subs: { [DEVICE]: JSON.parse(JSON.stringify(sub)) }, at: Date.now() }, { merge: true });
+  C.push = 'on'; renderCompte(); toast('Notifications activées');
+}
+async function disablePush() {
+  try {
+    const reg = await navigator.serviceWorker.ready; const sub = await reg.pushManager.getSubscription();
+    if (sub) await sub.unsubscribe();
+    if (C.user) await setDoc(doc(db, 'push', C.user.uid), { subs: { [DEVICE]: null } }, { merge: true });
+  } catch (e) { console.warn(e); }
+  C.push = 'off'; renderCompte(); toast('Notifications coupées sur ce téléphone');
+}
+window.enablePush = enablePush;
+function pushCardHtml() {
+  const st = C.push;
+  const what = '<small style="color:var(--mut);line-height:1.5">Rappel avant tes séances (touche « Rappel » sur un horaire), derniers jours des films de ta liste, sorties des films attendus, conseils de tes amis.</small>';
+  if (st === 'on') return `<div class="card form"><h2>Notifications</h2><small class="okc">✓ Activées sur ce téléphone</small>${what}<button class="btn sm" id="push-off" style="align-self:flex-start">Couper sur ce téléphone</button></div>`;
+  if (st === 'denied') return `<div class="card form"><h2>Notifications</h2><small style="color:var(--mut);line-height:1.5">Tu les as refusées. Pour les remettre : Réglages de l'iPhone › Notifications › Projo.</small></div>`;
+  if (st === 'unsupported' && !isStandalone()) return `<div class="card form"><h2>Notifications</h2><small style="color:var(--mut);line-height:1.5">Sur iPhone, les notifications marchent seulement quand Projo est ouvert depuis son icône sur l'écran d'accueil.</small></div>`;
+  return `<div class="card dark"><h2 style="color:var(--acc)">Notifications</h2><p class="syn" style="color:var(--dark-mut);margin:8px 0 14px">Reçois une notif sur ton écran verrouillé : rappel avant ta séance, derniers jours d'un film de ta liste, sortie d'un film attendu, conseil d'un ami.</p><button class="btn pri" id="push-on">Activer les notifications</button></div>`;
+}
+document.addEventListener('click', (e) => {
+  if (e.target.closest('#push-on')) { e.target.closest('#push-on').disabled = true; enablePush().catch((err) => { console.warn(err); toast('Activation impossible'); renderCompte(); }); }
+  if (e.target.closest('#push-off')) disablePush();
+});
+pushState().then((s) => { C.push = s; renderCompte(); });
 renderCompte();

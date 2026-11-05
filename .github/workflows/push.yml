@@ -1,0 +1,30 @@
+name: Notifications
+on:
+  schedule:
+    - cron: '2-59/5 * * * *'
+  workflow_dispatch:
+concurrency:
+  group: push
+  cancel-in-progress: false
+jobs:
+  push:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: |
+            data
+            scripts
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - uses: actions/cache@v4
+        with:
+          path: ~/.npm
+          key: npm-push-v1
+      - run: npm install --no-save --no-package-lock firebase-admin@12 web-push@3
+      - run: node scripts/push.mjs
+        env:
+          FIREBASE_SA: ${{ secrets.FIREBASE_SA }}
+          VAPID_PRIVATE: ${{ secrets.VAPID_PRIVATE }}

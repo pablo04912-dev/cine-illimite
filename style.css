@@ -372,3 +372,7 @@ html,body{touch-action:pan-x pan-y}
 .band{font-family:Inter,system-ui,sans-serif;font-size:13px;font-weight:700;text-transform:none;color:#E8A400;margin-left:6px}
 .evt{margin:0;padding:8px 12px;border-radius:12px;background:rgba(243,236,58,.14);color:var(--acc);font-size:13px;line-height:1.4}
 .up-day{text-transform:none!important}
+
+.act.on{background:var(--dark-ink);color:#111}
+button.act{border:none;font:inherit;cursor:pointer}
+.okc{color:#2F9E44;font-weight:600;font-size:13px}
