@@ -1,6 +1,6 @@
 'use strict';
 // Numéro de version : doit être égal au ?v= de app.js dans index.html (à augmenter à chaque mise à jour)
-const APP_VERSION = 17;
+const APP_VERSION = 18;
 
 // ================= état =================
 const DEFAULT_POS = { lat: 48.8396, lng: 2.3958, label: 'Paris 12e' };
@@ -957,3 +957,6 @@ document.addEventListener('visibilitychange', async () => {
   if (granted) locate(true);
   setInterval(renderSeances, 60000);
 })();
+
+// pas de zoom (pincement ou double-tap) : c'est une appli, pas une page web
+['gesturestart', 'gesturechange'].forEach((t) => document.addEventListener(t, (e) => e.preventDefault(), { passive: false }));

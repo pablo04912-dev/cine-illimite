@@ -334,3 +334,4 @@ dialog::backdrop{background:rgba(0,0,0,.6)}
 .fav-bar span{font-size:13px;color:var(--mut)}
 /* iPhone zoome sur les champs en dessous de 16px : on les garde tous à 16px minimum */
 input:not(#friend-code),select,textarea{font-size:16px!important}
+html,body{touch-action:pan-x pan-y}
