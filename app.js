@@ -509,16 +509,31 @@ function openFilm(id, day) {
     const c = cinema(s.c); const scr = s.sc && S.data.screens?.[s.sc];
     const day = s.t.slice(0, 10);
     const dl = day === today() ? "Aujourd'hui" : day === tomorrow() ? 'Demain' : new Date(day).toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
+    const fin = endOf(s).toTimeString().slice(0, 5).replace(':', 'h');
+    const ic = {
+      cal: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="3"/><path d="M3 10h18M8 3v4M16 3v4M12 13v5M9.5 15.5h5"/></svg>',
+      map: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 21s-7-6.2-7-11a7 7 0 0 1 14 0c0 4.8-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/></svg>',
+      tix: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M3 8a2 2 0 0 0 2-2h14a2 2 0 0 0 2 2v2a2 2 0 0 0 0 4v2a2 2 0 0 0-2 2H5a2 2 0 0 0-2-2v-2a2 2 0 0 0 0-4z"/><path d="M14 6v12" stroke-dasharray="2 2"/></svg>',
+      app: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><rect x="6" y="2" width="12" height="20" rx="3"/><path d="M11 18h2"/></svg>'
+    };
+    const acts = [
+      `<a class="act" href="${esc(gcalUrl(s))}" target="_blank" rel="noopener">${ic.cal}<span>Agenda</span></a>`,
+      `<a class="act" href="${esc(mapsUrl(c))}" target="_blank" rel="noopener">${ic.map}<span>Itinéraire</span></a>`,
+      c.ugc ? `<a class="act" href="https://www.ugc.fr/cinema.html?id=${c.ugc}">${ic.app}<span>Appli UGC</span></a>` : '',
+      s.bk ? `<a class="act" href="${esc(s.bk)}" target="_blank" rel="noopener">${ic.tix}<span>Réserver</span></a>` : ''
+    ].filter(Boolean);
     return `<div class="pick">
-      <span class="h">${dl} · ${hm(s.t)} · ${s.v}</span>
-      <span class="d">${scr && scr.name ? `Salle ${esc(scr.name)}${scr.seats ? ' · ' + scr.seats + ' places' : ''}${scr.width ? ' · écran ' + scr.width + ' m' : ''}<br>` : ''}${esc(c.name)} · ${esc(cineAddr(c))}<br>Fin vers ${endOf(s).toTimeString().slice(0, 5).replace(':', 'h')}</span>
-      <div class="row-actions">
-        <a class="btn pri" href="${esc(gcalUrl(s))}" target="_blank" rel="noopener">Ajouter à l'agenda</a>
-        <a class="btn ghost" href="${esc(mapsUrl(c))}" target="_blank" rel="noopener">Itinéraire</a>
-        ${c.ugc ? `<a class="btn ghost" href="https://www.ugc.fr/cinema.html?id=${c.ugc}">Ouvrir l'appli UGC</a>` : ''}
-        ${s.bk ? `<a class="btn ghost" href="${esc(s.bk)}" target="_blank" rel="noopener">${c.ugc ? 'Réserver sur le site' : 'Réserver'}</a>` : ''}
+      <div class="pick-top">
+        <span class="pick-hour">${hm(s.t)}</span>
+        <span class="pick-day"><b>${dl}</b><small>${s.v}${s.x ? ' · ' + esc(s.x) : ''} · fin vers ${fin}</small></span>
       </div>
-      <button class="mini-link" style="color:var(--dark-mut)" data-ics="1">Ou l'ajouter au calendrier de l'iPhone</button>
+      <ul class="pick-info">
+        ${scr && scr.name ? `<li><small>Salle</small><b>${esc(scr.name)}</b></li>` : ''}
+        ${scr && scr.seats ? `<li><small>Places</small><b>${scr.seats}</b></li>` : ''}
+        ${scr && scr.width ? `<li><small>Écran</small><b>${scr.width} m</b></li>` : ''}
+      </ul>
+      <p class="pick-addr">${esc(c.name)} · ${esc(cineAddr(c))}</p>
+      <div class="acts" style="grid-template-columns:repeat(${acts.length},minmax(0,1fr))">${acts.join('')}</div>
     </div>`;
   }
   const dayLabel = (d) => d === today() ? "Aujourd'hui" : d === tomorrow() ? 'Demain' : new Date(d).toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric' });
@@ -593,8 +608,6 @@ function openFilm(id, day) {
       const k = +b.dataset.pick; pick = pick === k ? null : k;
       const y = dlg.scrollTop; paint(); dlg.scrollTop = y;
     }));
-    const ics = $('[data-ics]', root);
-    if (ics) ics.onclick = () => downloadIcs(all[pick]);
   };
   paint();
   if (!dlg.open) dlg.showModal();
