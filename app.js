@@ -1,12 +1,12 @@
 'use strict';
 // Numéro de version : doit être égal au ?v= de app.js dans index.html (à augmenter à chaque mise à jour)
-const APP_VERSION = 10;
+const APP_VERSION = 11;
 
 // ================= état =================
 const DEFAULT_POS = { lat: 48.8396, lng: 2.3958, label: 'Paris 12e' };
 const store = {
   get(k, d) { try { const v = localStorage.getItem('ci.' + k); return v ? JSON.parse(v) : d; } catch { return d; } },
-  set(k, v) { try { localStorage.setItem('ci.' + k, JSON.stringify(v)); } catch { /* stockage indisponible */ } }
+  set(k, v) { try { localStorage.setItem('ci.' + k, JSON.stringify(v)); } catch { /* stockage indisponible */ } window.onStoreSet?.(k); }
 };
 const FORMULES = {
   m26: { label: 'UGC Illimité −26 ans', prix: 19.9 },
@@ -28,7 +28,8 @@ const S = {
   vus: store.get('vus2', []),
   carte: Object.assign({ formule: 'duo', prix: 39.9, partage: 2, plein: 14.9 }, store.get('carte', {})),
   theme: store.get('theme', 'light'),
-  pins: store.get('pins', ['C0065']) // Grand Rex épinglé par défaut
+  pins: store.get('pins', ['C0065']), // Grand Rex épinglé par défaut
+  conseils: store.get('conseils', []) // films que tu conseilles à tes amis
 };
 const $ = (s, el = document) => el.querySelector(s);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -448,6 +449,8 @@ function renderCarte() {
   const eco = ce * plein - part;
   const an = S.vus.filter((v) => v.date.startsWith(month.slice(0, 4))).length;
   $('#carte').innerHTML = `
+    <div id="compte" class="stack"></div>
+    <h2 style="margin-top:6px">Ma carte</h2>
     <div class="stat">
       <small style="font-weight:700;letter-spacing:.08em;text-transform:uppercase">Ce mois-ci</small>
       <div style="display:flex;align-items:flex-end;gap:10px"><span class="big">${eco >= 0 ? '+' : ''}${euro(eco)}</span></div>
@@ -487,6 +490,7 @@ function renderCarte() {
         <button data-theme-set="dark" aria-pressed="${S.theme === 'dark'}">Sombre</button>
       </div>
     </div>`;
+  window.renderCompte?.();
   $('#backup').onclick = backupData;
   $('#restore-file').onchange = (e) => { const f = e.target.files[0]; if (f) restoreData(f); };
   const save = () => { store.set('carte', S.carte); renderCarte(); };
@@ -495,7 +499,7 @@ function renderCarte() {
   $('#c-plein').onchange = (e) => { S.carte.plein = num(e.target.value) || 0; save(); };
 }
 // ================= sauvegarde / restauration =================
-const BACKUP_KEYS = ['liste', 'vus2', 'carte', 'theme', 'pins', 'fromTime', 'geoOk'];
+const BACKUP_KEYS = ['liste', 'vus2', 'carte', 'theme', 'pins', 'fromTime', 'geoOk', 'conseils'];
 async function backupData() {
   const data = { app: 'cine-illimite', version: 1, date: new Date().toISOString(), items: {} };
   for (const k of BACKUP_KEYS) { const v = store.get(k, undefined); if (v !== undefined) data.items[k] = v; }
@@ -587,6 +591,7 @@ function openFilm(id, day) {
     for (const s of all.filter((s) => s.t.startsWith(cur))) (byC[s.c] ||= []).push(s);
     const cines = Object.keys(byC).sort((a, b) => cinema(a).km - cinema(b).km);
     const seen = isSeenToday(id) >= 0;
+    const conseille = S.conseils.some((x) => String(x.f) === String(id));
     return `
     <div class="hero" style="${bg(f.poster)}">
       <button class="back glass" id="close" aria-label="Fermer"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg></button>
@@ -608,7 +613,9 @@ function openFilm(id, day) {
       <div class="actions">
         <button class="btn ${S.liste.has(id) ? 'on' : 'pri'}" id="toggle-list">${S.liste.has(id) ? '✓ Dans ma liste' : '+ Ma liste'}</button>
         <button class="btn ${seen ? 'on' : 'dark'}" id="seen">${seen ? '✓ Vu · annuler' : "Je l'ai vu"}</button>
+        <button class="btn ${conseille ? 'on' : ''}" id="conseil">${conseille ? '✓ Conseillé' : 'Conseiller'}</button>
       </div>
+      ${window.friendsOnFilm ? window.friendsOnFilm(id) : ''}
       ${f.synopsis ? `<p class="syn">${esc(f.synopsis)}</p>` : ''}
       <h2>Séances</h2>
       <div class="days" role="group" aria-label="Jour">${days.map((d) => `<button data-day="${d}" aria-pressed="${d === cur}">${dayLabel(d)}</button>`).join('')}</div>
@@ -646,6 +653,12 @@ function openFilm(id, day) {
         toast("Ajouté à ton historique : note-le quand tu veux");
       }
       store.set('vus2', S.vus); paint(); renderHisto(); renderCarte(); renderPourToi();
+    };
+    $('#conseil', root).onclick = () => {
+      const k = S.conseils.findIndex((x) => String(x.f) === String(id));
+      if (k >= 0) { S.conseils.splice(k, 1); toast('Conseil retiré'); }
+      else { S.conseils.push({ f: id, title: f.title, poster: f.poster || '' }); toast(window.CLOUD?.user ? 'Tes amis le verront dans ton profil' : 'Connecte-toi dans Profil pour que tes amis le voient'); }
+      store.set('conseils', S.conseils); paint();
     };
     root.querySelectorAll('.days button').forEach((b) => (b.onclick = () => { cur = b.dataset.day; pick = null; paint(); }));
     root.querySelectorAll('[data-pick]').forEach((b) => (b.onclick = () => {
