@@ -376,3 +376,8 @@ html,body{touch-action:pan-x pan-y}
 .act.on{background:var(--dark-ink);color:#111}
 button.act{border:none;font:inherit;cursor:pointer}
 .okc{color:#2F9E44;font-weight:600;font-size:13px}
+
+.alert-on{margin:0;display:flex;align-items:center;gap:8px;font-size:13px;color:var(--acc);font-weight:600}
+.alert-on svg{width:18px;height:18px;flex-shrink:0}
+.alert-on span{flex:1}
+.alert-on button{background:none;border:1px solid rgba(255,255,255,.25);color:var(--dark-ink);border-radius:999px;padding:5px 12px;font:inherit;font-size:12px}

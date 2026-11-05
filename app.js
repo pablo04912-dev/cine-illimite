@@ -1,6 +1,6 @@
 'use strict';
 // Numéro de version : doit être égal au ?v= de app.js dans index.html (à augmenter à chaque mise à jour)
-const APP_VERSION = 23;
+const APP_VERSION = 24;
 
 // ================= état =================
 const DEFAULT_POS = { lat: 48.8396, lng: 2.3958, label: 'Paris 12e' };
@@ -536,7 +536,7 @@ function toggleRappel(s) {
     const c = cinema(s.c); const f = S.data.films[s.f];
     const travel = S.pos && S.pos !== DEFAULT_POS ? Math.round(c.km * 13 <= 20 ? c.km * 13 : 12 + c.km * 3) : 0;
     S.rappels = [...keep, { k, t: s.t, c: s.c, f: s.f, title: f.title, cine: c.name, ads: adMin(c), travel }];
-    toast(window.CLOUD?.push === 'on' ? 'Je te préviens avant la séance' : 'Rappel noté : active les notifications dans Profil pour le recevoir');
+    toast(window.CLOUD?.push === 'on' ? 'Alerte activée : je te préviens avant la séance' : 'Alerte notée : active les notifications dans Profil pour la recevoir');
   }
   store.set('rappels', S.rappels);
 }
@@ -607,8 +607,7 @@ function openFilm(id, day) {
     };
     const rp = hasRappel(s);
     const acts = [
-      `<button class="act ${rp ? 'on' : ''}" data-rappel>${ic.bell}<span>${rp ? 'Rappel ✓' : 'Rappel'}</span></button>`,
-      `<a class="act" href="${esc(gcalUrl(s))}" target="_blank" rel="noopener">${ic.cal}<span>Agenda</span></a>`,
+      `<a class="act ${rp ? 'on' : ''}" data-agenda href="${esc(gcalUrl(s))}" target="_blank" rel="noopener">${ic.cal}<span>Agenda</span></a>`,
       `<a class="act" href="${esc(mapsUrl(c))}" target="_blank" rel="noopener">${ic.map}<span>Itinéraire</span></a>`,
       c.ugc ? `<a class="act" href="https://www.ugc.fr/cinema.html?id=${c.ugc}">${ic.app}<span>Appli UGC</span></a>` : '',
       s.bk ? `<a class="act" href="${esc(s.bk)}" target="_blank" rel="noopener">${ic.tix}<span>Réserver</span></a>` : ''
@@ -627,6 +626,7 @@ function openFilm(id, day) {
       </ul>
       <p class="pick-addr">${esc(c.name)} · ${esc(cineAddr(c))}</p>
       <div class="acts" style="grid-template-columns:repeat(${acts.length},minmax(0,1fr))">${acts.join('')}</div>
+      ${rp ? `<p class="alert-on">${ic.bell}<span>Alerte activée : notif avant la séance</span><button data-rappel-off>Retirer</button></p>` : ''}
     </div>`;
   }
   const dayLabel = (d) => d === today() ? "Aujourd'hui" : d === tomorrow() ? 'Demain' : new Date(d).toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric' });
@@ -708,8 +708,11 @@ function openFilm(id, day) {
       store.set('conseils', S.conseils); paint();
     };
     root.querySelectorAll('.days button').forEach((b) => (b.onclick = () => { cur = b.dataset.day; pick = null; paint(); }));
-    const rb = root.querySelector('[data-rappel]');
-    if (rb && pick != null) rb.onclick = () => { toggleRappel(all[pick]); const y = dlg.scrollTop; paint(); dlg.scrollTop = y; };
+    // ajouter à l'agenda = activer l'alerte de la séance
+    const ag = root.querySelector('[data-agenda]');
+    if (ag && pick != null) ag.addEventListener('click', () => { if (!hasRappel(all[pick])) { toggleRappel(all[pick]); setTimeout(() => { const y = dlg.scrollTop; paint(); dlg.scrollTop = y; }, 50); } });
+    const off = root.querySelector('[data-rappel-off]');
+    if (off && pick != null) off.onclick = () => { toggleRappel(all[pick]); const y = dlg.scrollTop; paint(); dlg.scrollTop = y; };
     root.querySelectorAll('[data-pick]').forEach((b) => (b.onclick = () => {
       const k = +b.dataset.pick; pick = pick === k ? null : k;
       const y = dlg.scrollTop; paint(); dlg.scrollTop = y;

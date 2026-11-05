@@ -393,7 +393,7 @@ async function disablePush() {
 window.enablePush = enablePush;
 function pushCardHtml() {
   const st = C.push;
-  const what = '<small style="color:var(--mut);line-height:1.5">Rappel avant tes séances (touche « Rappel » sur un horaire), derniers jours des films de ta liste, sorties des films attendus, conseils de tes amis.</small>';
+  const what = '<small style="color:var(--mut);line-height:1.5">Alerte avant tes séances (dès que tu touches « Agenda » sur un horaire), derniers jours des films de ta liste, sorties des films attendus, conseils de tes amis.</small>';
   if (st === 'on') return `<div class="card form"><h2>Notifications</h2><small class="okc">✓ Activées sur ce téléphone</small>${what}<button class="btn sm" id="push-off" style="align-self:flex-start">Couper sur ce téléphone</button></div>`;
   if (st === 'denied') return `<div class="card form"><h2>Notifications</h2><small style="color:var(--mut);line-height:1.5">Tu les as refusées. Pour les remettre : Réglages de l'iPhone › Notifications › Projo.</small></div>`;
   if (st === 'unsupported' && !isStandalone()) return `<div class="card form"><h2>Notifications</h2><small style="color:var(--mut);line-height:1.5">Sur iPhone, les notifications marchent seulement quand Projo est ouvert depuis son icône sur l'écran d'accueil.</small></div>`;
