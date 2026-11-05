@@ -49,8 +49,9 @@ function applyItems(items) {
 }
 const vuKey = (v) => v.f + '|' + v.date;
 const richness = (v) => (v.review ? v.review.length + 10 : 0) + (v.rating ? 5 : 0);
-function merge(cloud, local) {
-  const out = Object.assign({}, local, cloud);
+// localWins : modifs faites sur ce téléphone pas encore envoyées (hors ligne)
+function merge(cloud, local, localWins) {
+  const out = localWins ? Object.assign({}, cloud, local) : Object.assign({}, local, cloud);
   out.liste = [...new Set([...(cloud.liste || []), ...(local.liste || [])])];
   const m = new Map();
   for (const v of cloud.vus2 || []) m.set(vuKey(v), v);
@@ -64,8 +65,11 @@ function merge(cloud, local) {
 
 // ---------- envoi ----------
 let pushT = null;
+const DIRTY = 'ci.dirty';
 window.onStoreSet = (k) => {
-  if (C.applying || !C.user || !SYNC_KEYS.includes(k)) return;
+  if (C.applying || !SYNC_KEYS.includes(k)) return;
+  try { localStorage.setItem(DIRTY, '1'); } catch { /* */ }
+  if (!C.user) return;
   clearTimeout(pushT);
   pushT = setTimeout(push, 800);
 };
@@ -73,6 +77,7 @@ async function push() {
   if (!C.user) return;
   try {
     await setDoc(doc(db, 'users', C.user.uid), { items: localItems(), dev: DEVICE, at: Date.now() });
+    try { localStorage.removeItem(DIRTY); } catch { /* */ }
     await saveProfile();
   } catch (e) { console.warn('synchro', e); }
 }
@@ -135,11 +140,21 @@ async function startSync(u) {
     const ref = doc(db, 'users', u.uid);
     const snap = await getDoc(ref);
     const local = localItems();
-    const merged = snap.exists() ? merge(snap.data().items || {}, local) : local;
+    const cloud = snap.exists() ? (snap.data().items || {}) : null;
+    const owner = store.get('owner', null);
+    let merged;
+    if (owner && owner !== u.uid) {
+      // ce téléphone appartenait à un autre compte : on ne mélange pas, on prend celui du compte
+      merged = Object.assign({ liste: [], vus2: [], conseils: [], pins: ['C0065'], fromTime: '19:00', carte: {} }, cloud || {});
+    } else if (cloud) {
+      merged = merge(cloud, local, !!localStorage.getItem(DIRTY));
+    } else merged = local;
     applyItems(merged);
+    store.set('owner', u.uid);
     await ensureProfile(u);
     const added = await readInvites();
     await setDoc(ref, { items: localItems(), dev: DEVICE, at: Date.now() });
+    try { localStorage.removeItem(DIRTY); } catch { /* */ }
     await saveProfile();
     if (added) toast(added > 1 ? `${added} amis t'ont ajouté` : "Un ami t'a ajouté");
     C.unsub?.();
@@ -328,7 +343,12 @@ document.addEventListener('click', (e) => {
   const b = e.target.closest('[data-friend]');
   if (b) { e.stopPropagation(); openFriend(b.dataset.friend); return; }
   if (e.target.closest('#logout')) {
-    if (confirm('Te déconnecter ? Tes données restent sur ce téléphone.')) signOut(auth);
+    if (!confirm('Te déconnecter ? Tes films restent sauvegardés dans ton compte Google.')) return;
+    // on vide ce téléphone (tout est dans le compte) pour que le compte suivant ne récupère pas tes données
+    signOut(auth).then(() => {
+      for (const k of [...SYNC_KEYS, 'owner', 'dirty', 'alertsSeen']) { try { localStorage.removeItem('ci.' + k); } catch { /* */ } }
+      location.reload();
+    });
   }
 }, true);
 
