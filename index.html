@@ -13,7 +13,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,500..900&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=5">
+<link rel="stylesheet" href="style.css?v=6">
 </head>
 <body>
 <main id="app">
@@ -48,6 +48,11 @@
       </div>
       <div id="geo-help" class="help" hidden></div>
       <div class="pins" id="pins" aria-label="Mes salles"></div>
+      <div class="viewseg" role="group" aria-label="Affichage">
+        <button data-sv="all" aria-pressed="true">À l'affiche</button>
+        <button data-sv="classics" aria-pressed="false">Classiques</button>
+      </div>
+      <div id="filters">
       <div class="chips" id="chips" role="group" aria-label="Filtres">
         <button data-f="now" aria-pressed="true">Maintenant</button>
         <button data-f="tonight" aria-pressed="false">Ce soir</button>
@@ -64,8 +69,9 @@
         <label for="from-time">À partir de</label>
         <input type="time" id="from-time" value="19:00" step="900">
         <div class="quick">
-          <button data-t="18:00">18h</button><button data-t="19:00">19h</button><button data-t="20:00">20h</button><button data-t="21:00">21h</button>
+          <button data-t="18:00">18h</button><button data-t="19:00">19h</button><button data-t="20:00">20h</button><button data-t="21:00">21h</button><button data-t="22:00">22h</button>
         </div>
+      </div>
       </div>
       <p class="note"><span class="dot"></span><span id="count-label">Salles qui acceptent ta carte UGC Illimité</span></p>
     </div>
@@ -105,6 +111,6 @@
 </dialog>
 
 <div id="toast" role="status" aria-live="polite"></div>
-<script src="app.js?v=5"></script>
+<script src="app.js?v=6"></script>
 </body>
 </html>

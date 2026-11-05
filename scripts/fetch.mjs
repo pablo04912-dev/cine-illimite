@@ -27,7 +27,7 @@ async function politeFetch(url, opts, { tries = 6, gap = 700 } = {}) {
       lastAllo = Date.now();
     }
     try {
-      const r = await fetch(url, opts);
+      const r = await fetch(url, { ...opts, signal: AbortSignal.timeout(20000) });
       if (r.status === 429 || r.status >= 500) {
         if (tries === 1) { blocked = r.status === 429; return null; }
         const pause = Math.min(120, 15 * 2 ** i);
@@ -190,6 +190,59 @@ async function enrichReviews(films, seances) {
   }
 }
 
+// paris-cine.info : notes (Letterboxd, IMDb, SensCritique…), repérage des classiques,
+// et pour les salles indé : salle exacte (places, taille d'écran) + lien de réservation
+const PC = 'https://paris-cine.info';
+let lastPc = 0;
+async function pcJson(path) {
+  const wait = lastPc + 1200 - Date.now();
+  if (wait > 0) await sleep(wait);
+  lastPc = Date.now();
+  try {
+    const r = await fetch(PC + path, { headers: { 'User-Agent': UA, Accept: 'application/json', Referer: PC + '/' }, signal: AbortSignal.timeout(15000) });
+    return r.ok ? await r.json() : null;
+  } catch { return null; }
+}
+async function enrichParisCine(films, seances, cinemas, prevScreens) {
+  const mv = await pcJson('/get_movies.php');
+  const byId = {};
+  for (const m of mv?.data || []) byId[String(m.id)] = m;
+  let n = 0;
+  for (const [id, f] of Object.entries(films)) {
+    const m = byId[id]; if (!m) continue;
+    n++;
+    f.classic = m.ret === 1;
+    f.notes = { lb: m.lb_r || null, imdb: m.im_r || null, sc: m.sc_r || null, rt: m.rt_r || null, mc: m.mc_r || null };
+    if (m.lb_u) f.lb = m.lb_u;
+    if (!f.year && m.ye) f.year = Number(m.ye);
+  }
+  console.log(`paris-cine : ${n} films reconnus, ${Object.values(films).filter((f) => f.classic).length} classiques`);
+  const indie = new Set(cinemas.filter((c) => !/^(UGC|MK2)\b/i.test(c.name)).map((c) => c.id));
+  const want = [...new Set(seances.filter((s) => indie.has(s.c)).map((s) => s.f))].filter((id) => byId[id]);
+  const idx = new Map(seances.map((s) => [`${s.f}|${s.c}|${s.t}`, s]));
+  const screens = { ...prevScreens };
+  const missing = new Set();
+  let k = 0;
+  for (const id of want) {
+    if (++k % 50 === 0) console.log(`paris-cine : ${k}/${want.length} films`);
+    const j = await pcJson(`/get_showtimes.php?mov_id=${id}`);
+    for (const st of j?.showtimes || []) {
+      const s = idx.get(`${id}|${st.tid}|${String(st.start).slice(0, 16)}`);
+      if (!s) continue;
+      if (Number(st.screen_id) > 0) { s.sc = `${st.tid}:${st.screen_id}`; if (!screens[s.sc]) missing.add(s.sc); }
+      if (st.book) s.bk = st.book;
+    }
+  }
+  for (const key of missing) {
+    const [tid, sid] = key.split(':');
+    const j = await pcJson(`/get_pcitheatre.php?theatre_id=${tid}&screen_id=${sid}`);
+    const t = j?.theater?.[0];
+    screens[key] = t ? { name: t.screen_name || '', seats: Number(t.seatCount) || null, width: Number(t.screenWidth) || null } : {};
+  }
+  console.log(`paris-cine : salles précisées pour ${want.length} films, ${Object.keys(screens).length} écrans connus`);
+  return screens;
+}
+
 const tmdb = (path) =>
   getJson(`https://api.themoviedb.org/3${path}`, { Authorization: `Bearer ${TMDB_TOKEN}` });
 
@@ -273,7 +326,21 @@ async function fetchLetterboxd() {
 
 const cinemas = JSON.parse(await readFile(new URL('cinemas.json', root), 'utf8'));
 let previous = {};
-try { previous = JSON.parse(await readFile(new URL('data/seances.json', root), 'utf8')).films || {}; } catch { /* premier lancement */ }
+let prevScreens = {};
+try {
+  const old = JSON.parse(await readFile(new URL('data/seances.json', root), 'utf8'));
+  previous = old.films || {};
+  prevScreens = old.screens || {};
+} catch { /* premier lancement */ }
+// PC_ONLY=1 : ne refait que la partie paris-cine.info sur les données existantes (pour tester)
+if (process.env.PC_ONLY) {
+  const old = JSON.parse(await readFile(new URL('data/seances.json', root), 'utf8'));
+  old.cinemas = cinemas;
+  old.screens = await enrichParisCine(old.films, old.seances, cinemas, prevScreens);
+  await writeFile(new URL('data/seances.json', root), JSON.stringify(old));
+  console.log('paris-cine seul : écrit.');
+  process.exit(0);
+}
 const { films, seances } = await fetchShowtimes(cinemas);
 // on réutilise ce qu'on connaît déjà (bandes-annonces, avis) pour ne pas tout redemander chaque nuit
 const FRESH = 14 * 86400000;
@@ -289,10 +356,12 @@ if (!seances.length) {
 }
 await enrichTmdb(films);
 await enrichReviews(films, seances);
+let screens = prevScreens;
+try { screens = await enrichParisCine(films, seances, cinemas, prevScreens); } catch (e) { console.warn('paris-cine indisponible : ' + e.message); }
 const journal = await fetchLetterboxd();
 await mkdir(new URL('data/', root), { recursive: true });
 await writeFile(
   new URL('data/seances.json', root),
-  JSON.stringify({ generatedAt: new Date().toISOString(), cinemas, films, seances, journal })
+  JSON.stringify({ generatedAt: new Date().toISOString(), cinemas, films, seances, screens, journal })
 );
 console.log('data/seances.json écrit.');
