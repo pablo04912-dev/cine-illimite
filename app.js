@@ -1,4 +1,6 @@
 'use strict';
+// Numéro de version : doit être égal au ?v= de app.js dans index.html (à augmenter à chaque mise à jour)
+const APP_VERSION = 10;
 
 // ================= état =================
 const DEFAULT_POS = { lat: 48.8396, lng: 2.3958, label: 'Paris 12e' };
@@ -868,13 +870,46 @@ document.querySelectorAll('.tabs button').forEach((b) => b.addEventListener('cli
 }));
 $('#sheet').addEventListener('close', () => { if (!$('#sheet').open) $('#sheet-body').innerHTML = ''; });
 
+// ================= mises à jour automatiques =================
+// L'iPhone garde la page en cache : à chaque ouverture on vérifie s'il existe une version plus récente
+// de l'appli (et des séances) et on recharge tout seul si besoin.
+async function checkForUpdate() {
+  try {
+    const html = await (await fetch(`index.html?check=${Date.now()}`, { cache: 'no-store' })).text();
+    const m = html.match(/app\.js\?v=(\d+)/);
+    if (m && Number(m[1]) > APP_VERSION) {
+      location.replace(location.pathname + '?v=' + m[1]);
+      return true;
+    }
+  } catch { /* hors ligne */ }
+  return false;
+}
+async function refreshData() {
+  try {
+    const d = await (await fetch(`data/seances.json?t=${Date.now()}`, { cache: 'no-store' })).json();
+    if (!S.data || d.generatedAt === S.data.generatedAt) return;
+    d.cinemaById = Object.fromEntries(d.cinemas.map((c) => [c.id, c]));
+    S.data = d; computeDistances(); buildTaste();
+    const g = new Date(d.generatedAt);
+    $('#updated').textContent = 'Mis à jour le ' + g.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' }) + ' à ' + g.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }) + '.';
+    renderAll();
+  } catch { /* hors ligne */ }
+}
+document.addEventListener('visibilitychange', async () => {
+  if (document.visibilityState !== 'visible') return;
+  if (await checkForUpdate()) return;
+  refreshData();
+  renderSeances();
+});
+
 // ================= démarrage =================
 (async function init() {
   applyTheme();
+  if (await checkForUpdate()) return;
   $('#from-time').value = S.fromTime;
   syncChips();
   try {
-    const r = await fetch('data/seances.json', { cache: 'no-cache' });
+    const r = await fetch(`data/seances.json?t=${Date.now()}`, { cache: 'no-store' });
     S.data = await r.json();
   } catch {
     $('#seances-grid').innerHTML = '<p class="empty">Impossible de charger les séances.</p>';
