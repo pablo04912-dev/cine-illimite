@@ -205,7 +205,22 @@ const avatar = (p, size = 44) => p.photo
 const starsTxt = (r) => r ? '★'.repeat(Math.floor(r)) + (r % 1 ? '½' : '') : '';
 const posterCell = (x) => `<button class="mini" ${S.data?.films?.[x.f] ? `data-film="${esc(x.f)}"` : 'disabled'}><i style="${bg(x.poster)}"></i><span>${esc(x.title)}</span></button>`;
 
+// Bandeau sur l'accueil tant que tu n'es pas connecté
+function renderNudge() {
+  let n = document.getElementById('login-nudge');
+  const show = C.ready && !C.user && !store.get('nudgeOff', false);
+  if (!show) { n?.remove(); return; }
+  if (n) return;
+  n = document.createElement('div');
+  n.id = 'login-nudge'; n.className = 'card dark nudge';
+  n.innerHTML = `<div class="fi"><b style="color:var(--acc)">Connecte-toi avec Google</b><small style="color:var(--dark-mut)">Tes films et tes notes sont sauvegardés, et tu peux ajouter tes amis.</small></div>
+    <button class="btn pri sm" id="nudge-go">Se connecter</button><button class="x" id="nudge-x" aria-label="Plus tard">✕</button>`;
+  const pad = document.querySelector('#view-seances .pad'); pad.insertBefore(n, pad.firstChild);
+  n.querySelector('#nudge-go').onclick = (e) => { e.target.disabled = true; e.target.textContent = 'Connexion…'; login().catch(() => { toast('Connexion impossible'); e.target.disabled = false; e.target.textContent = 'Se connecter'; }); };
+  n.querySelector('#nudge-x').onclick = () => { store.set('nudgeOff', true); n.remove(); };
+}
 function renderCompte() {
+  renderNudge();
   const el = document.getElementById('compte'); if (!el) return;
   const h1 = document.getElementById('t-carte');
   if (!C.user) {
