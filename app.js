@@ -66,6 +66,12 @@ function dansLabel(t) {
   if (d === tomorrow()) return 'demain';
   return new Date(d).toLocaleDateString('fr-FR', { weekday: 'long' });
 }
+function dayShort(t) {
+  const d = t.slice(0, 10);
+  if (d === today()) return "Aujourd'hui";
+  if (d === tomorrow()) return 'Demain';
+  return new Date(d).toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric', month: 'short' });
+}
 function quand(t) {
   const d = t.slice(0, 10);
   if (d === today()) return `Auj. ${hm(t)}`;
@@ -114,7 +120,8 @@ function filtered() {
   const { day, from } = window_();
   const nowMs = Date.now() - 5 * 60000;
   return S.data.seances.filter((s) => {
-    const c = cinema(s.c); if (!c || c.km > S.radius) return false;
+    const c = cinema(s.c); if (!c) return false;
+    if (S.cine) { if (s.c !== S.cine) return false; } else if (c.km > S.radius) return false;
     if (s.t.slice(0, 10) !== day) return false;
     if (s.t.slice(11, 16) < from) return false;
     if (asDate(s.t).getTime() < nowMs) return false;
@@ -189,15 +196,18 @@ function downloadIcs(s) {
   a.href = URL.createObjectURL(new Blob([ics], { type: 'text/calendar' }));
   a.download = 'seance.ics'; a.click();
 }
-function notesHtml(f, light) {
+// notes des sites, avec leur petit logo (favicon du site)
+function notesHtml(f) {
   const n = f.notes || {};
+  const ico = (dom) => `<img src="https://www.google.com/s2/favicons?domain=${dom}&sz=64" alt="" width="18" height="18" loading="lazy">`;
+  const fr = (v) => String(v).replace('.', ',');
   const items = [
-    n.lb ? `<span>Letterboxd <b>${String(n.lb).replace('.', ',')}</b></span>` : '',
-    n.imdb ? `<span>IMDb <b>${String(n.imdb).replace('.', ',')}</b></span>` : '',
-    n.sc ? `<span>SensCritique <b>${String(n.sc).replace('.', ',')}</b></span>` : '',
-    n.rt ? `<span>Rotten <b>${n.rt} %</b></span>` : ''
+    n.lb ? `<div class="note-site">${ico('letterboxd.com')}<span><small>Letterboxd</small><b>${fr(n.lb)}<i>/5</i></b></span></div>` : '',
+    n.imdb ? `<div class="note-site">${ico('imdb.com')}<span><small>IMDb</small><b>${fr(n.imdb)}<i>/10</i></b></span></div>` : '',
+    n.sc ? `<div class="note-site">${ico('senscritique.com')}<span><small>SensCritique</small><b>${fr(n.sc)}<i>/10</i></b></span></div>` : '',
+    n.rt ? `<div class="note-site">${ico('rottentomatoes.com')}<span><small>Rotten Tomatoes</small><b>${n.rt}<i> %</i></b></span></div>` : ''
   ].filter(Boolean).join('');
-  return items ? `<div class="notes${light ? ' light' : ''}">${items}</div>` : '';
+  return items ? `<div class="notes-sites">${items}</div>` : '';
 }
 // note « classique » : moyenne des notes disponibles ramenées sur 1
 function classicScore(f) {
@@ -226,9 +236,12 @@ function renderClassics() {
       <div class="body">
         <span class="t">${esc(f.title)}</span>
         <span class="m">${esc([f.director, f.year].filter(Boolean).join(' · '))}</span>
-        ${notesHtml(f)}
-        <span class="next">${quand(near.t)} · ${esc(shortName(cinema(near.c)))} · ${fmtDist(cinema(near.c).km)}</span>
-        <span class="m">${ss.length} séance${ss.length > 1 ? 's' : ''} cette semaine dans ${nCines} salle${nCines > 1 ? 's' : ''}</span>
+        <div class="bubbles">
+          <span class="b-day">${dayShort(near.t)}</span>
+          <span class="b-hour">${hm(near.t)}</span>
+          <span class="b-place">${esc(shortName(cinema(near.c)))}<small>${fmtDist(cinema(near.c).km)}</small></span>
+        </div>
+        <span class="m">${ss.length > 1 ? `+ ${ss.length - 1} autre${ss.length > 2 ? 's' : ''} séance${ss.length > 2 ? 's' : ''} cette semaine` : 'Seule séance de la semaine'}${nCines > 1 ? ` · ${nCines} salles` : ''}</span>
       </div>
     </button>`;
   }).join('') + (list.length > S.limit ? `<button class="btn btn-more" id="more">Afficher plus (${list.length - S.limit})</button>` : '');
@@ -500,9 +513,10 @@ function openFilm(id, day) {
       <span class="h">${dl} · ${hm(s.t)} · ${s.v}</span>
       <span class="d">${scr && scr.name ? `Salle ${esc(scr.name)}${scr.seats ? ' · ' + scr.seats + ' places' : ''}${scr.width ? ' · écran ' + scr.width + ' m' : ''}<br>` : ''}${esc(c.name)} · ${esc(cineAddr(c))}<br>Fin vers ${endOf(s).toTimeString().slice(0, 5).replace(':', 'h')}</span>
       <div class="row-actions">
-        <a class="btn pri" href="${esc(gcalUrl(s))}" target="_blank" rel="noopener">Ajouter à Google Agenda</a>
-        <a class="btn" href="${esc(mapsUrl(c))}" target="_blank" rel="noopener">Itinéraire</a>
-        ${s.bk ? `<a class="btn" href="${esc(s.bk)}" target="_blank" rel="noopener">Réserver</a>` : ''}
+        <a class="btn pri" href="${esc(gcalUrl(s))}" target="_blank" rel="noopener">Ajouter à l'agenda</a>
+        <a class="btn ghost" href="${esc(mapsUrl(c))}" target="_blank" rel="noopener">Itinéraire</a>
+        ${c.ugc ? `<a class="btn ghost" href="https://www.ugc.fr/cinema.html?id=${c.ugc}">Ouvrir l'appli UGC</a>` : ''}
+        ${s.bk ? `<a class="btn ghost" href="${esc(s.bk)}" target="_blank" rel="noopener">${c.ugc ? 'Réserver sur le site' : 'Réserver'}</a>` : ''}
       </div>
       <button class="mini-link" style="color:var(--dark-mut)" data-ics="1">Ou l'ajouter au calendrier de l'iPhone</button>
     </div>`;
@@ -531,7 +545,7 @@ function openFilm(id, day) {
         <div class="acc"><small>Match pour toi</small><b>${matchPct(f)} %</b></div>
       </div>
       ${open ? `<div class="reviews">${reviewsHtml(f, open === 'press' ? 'press' : 'user')}</div>` : ''}
-      ${notesHtml(f, true)}
+      ${notesHtml(f)}
       <div class="actions">
         <button class="btn ${S.liste.has(id) ? 'on' : 'pri'}" id="toggle-list">${S.liste.has(id) ? '✓ Dans ma liste' : '+ Ma liste'}</button>
         <button class="btn ${seen ? 'on' : 'dark'}" id="seen">${seen ? '✓ Vu · annuler' : "Je l'ai vu"}</button>
@@ -610,14 +624,11 @@ function renderSearch() {
 function closeSearch() { $('#q-results').hidden = true; }
 
 // ================= salles épinglées =================
+// les salles épinglées deviennent des filtres à côté de VO, Salles indé, Ma liste…
 function renderPins() {
-  const nowMs = Date.now() - 5 * 60000; const d0 = today();
-  $('#pins').innerHTML = S.pins.map((id) => cinema(id)).filter(Boolean).map((c) => {
-    const n = S.data.seances.filter((s) => s.c === c.id && s.t.startsWith(d0) && asDate(s.t).getTime() > nowMs).length;
-    return `<button class="pin" data-cine="${c.id}"><span class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 3l2.6 5.6 6 .7-4.5 4.1 1.2 6L12 16.4 6.7 19.4l1.2-6L3.4 9.3l6-.7z"/></svg></span>
-      <span><b>${esc(c.name)}</b><small>${n ? n + ' séance' + (n > 1 ? 's' : '') + " aujourd'hui" : 'Programme de la semaine'} · ${fmtDist(c.km)}</small></span></button>`;
-  }).join('');
-  $('#pins').hidden = !S.pins.length;
+  if (S.cine && !S.pins.includes(S.cine)) S.cine = null;
+  $('#pin-chips').innerHTML = S.pins.map((id) => cinema(id)).filter(Boolean).map((c) =>
+    `<button data-pinf="${c.id}" aria-pressed="${S.cine === c.id}">★ ${esc(shortName(c))}</button>`).join('');
 }
 
 // ================= fiche salle =================
@@ -641,7 +652,7 @@ function openCinema(cid) {
       <h2 id="f-title">${esc(c.name)}</h2>
       <p>${esc(c.cp)} Paris · ${fmtDist(c.km)} · ${trajet(c.km)}${isIndie(c) ? ' · salle indé' : ''}${c.extra ? ' · supplément ' + esc(c.extra) : ''}</p>
       <div class="row-actions"><a class="btn pri" href="${esc(mapsUrl(c))}" target="_blank" rel="noopener">Itinéraire</a>${c.addr ? `<span style="font-size:12px;color:var(--dark-mut);align-self:center">${esc(c.addr)}</span>` : ''}</div>
-      <button class="pin-toggle" id="pin-toggle" aria-pressed="${S.pins.includes(cid)}">${S.pins.includes(cid) ? '★ Dans mes salles' : '☆ Épingler en haut de l\'accueil'}</button>
+      <button class="pin-toggle" id="pin-toggle" aria-pressed="${S.pins.includes(cid)}">${S.pins.includes(cid) ? '★ Dans les filtres de l\'accueil' : '☆ Ajouter aux filtres de l\'accueil'}</button>
     </div>
     <div class="sheet-body">
       <div class="days" role="group" aria-label="Jour">${days.map((d) => `<button data-day="${d}" aria-pressed="${d === cur}">${dayLabel(d)}</button>`).join('')}</div>
@@ -664,7 +675,7 @@ function openCinema(cid) {
     root.querySelectorAll('[data-cf]').forEach((b) => (b.onclick = () => { vo = !vo; paint(); }));
     $('#pin-toggle', root).onclick = () => {
       S.pins = S.pins.includes(cid) ? S.pins.filter((x) => x !== cid) : [...S.pins, cid];
-      store.set('pins', S.pins); renderPins(); paint();
+      store.set('pins', S.pins); renderPins(); renderSeances(); paint();
     };
     root.querySelectorAll('[data-from]').forEach((b) => (b.onclick = () => { from = b.dataset.from; paint(); }));
     root.querySelectorAll('.crow').forEach((b) => (b.onclick = () => openFilm(b.dataset.film, b.dataset.day)));
@@ -759,7 +770,7 @@ document.addEventListener('input', (e) => {
   if (t) { S.vus[+t.dataset.rev].review = t.value; clearTimeout(t._t); t._t = setTimeout(() => store.set('vus2', S.vus), 300); }
 });
 function syncChips() {
-  document.querySelectorAll('#chips button').forEach((b) => {
+  document.querySelectorAll('#chips button[data-f]').forEach((b) => {
     const f = b.dataset.f;
     const on = ['now', 'tonight', 'from'].includes(f) ? S.mode === f : f === 'tomorrow' ? S.tomorrow : S[f];
     b.setAttribute('aria-pressed', String(!!on));
@@ -769,6 +780,11 @@ function syncChips() {
 }
 $('#chips').addEventListener('click', (e) => {
   const b = e.target.closest('button'); if (!b) return;
+  if (b.dataset.pinf) {
+    S.cine = S.cine === b.dataset.pinf ? null : b.dataset.pinf;
+    if (S.cine && S.mode === 'now') S.mode = 'all';
+    S.limit = 30; renderPins(); syncChips(); renderSeances(); return;
+  }
   const f = b.dataset.f;
   if (['now', 'tonight', 'from'].includes(f)) S.mode = S.mode === f && f !== 'from' ? 'all' : f;
   else if (f === 'tomorrow') { S.tomorrow = !S.tomorrow; if (S.tomorrow && S.mode === 'now') S.mode = 'all'; }
@@ -795,7 +811,7 @@ document.querySelectorAll('.tabs button').forEach((b) => b.addEventListener('cli
   document.querySelectorAll('.view').forEach((v) => v.classList.toggle('active', v.id === 'view-' + b.dataset.v));
   window.scrollTo(0, 0);
 }));
-$('#sheet').addEventListener('close', () => { $('#sheet-body').innerHTML = ''; });
+$('#sheet').addEventListener('close', () => { if (!$('#sheet').open) $('#sheet-body').innerHTML = ''; });
 
 // ================= démarrage =================
 (async function init() {

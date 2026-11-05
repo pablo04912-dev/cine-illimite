@@ -13,7 +13,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,500..900&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=6">
+<link rel="stylesheet" href="style.css?v=7">
 </head>
 <body>
 <main id="app">
@@ -47,7 +47,6 @@
         </select>
       </div>
       <div id="geo-help" class="help" hidden></div>
-      <div class="pins" id="pins" aria-label="Mes salles"></div>
       <div class="viewseg" role="group" aria-label="Affichage">
         <button data-sv="all" aria-pressed="true">À l'affiche</button>
         <button data-sv="classics" aria-pressed="false">Classiques</button>
@@ -64,6 +63,7 @@
         <button data-f="indie" aria-pressed="false">Salles indé</button>
         <button data-f="list" aria-pressed="false">Ma liste</button>
         <button data-f="premium" aria-pressed="false">Dolby / IMAX</button>
+        <span id="pin-chips" style="display:contents"></span>
       </div>
       <div class="from-picker" id="from-picker" hidden>
         <label for="from-time">À partir de</label>
@@ -111,6 +111,6 @@
 </dialog>
 
 <div id="toast" role="status" aria-live="polite"></div>
-<script src="app.js?v=6"></script>
+<script src="app.js?v=7"></script>
 </body>
 </html>
