@@ -1,6 +1,6 @@
 {
-  "name": "Ciné Illimité",
-  "short_name": "Ciné",
+  "name": "Projo",
+  "short_name": "Projo",
   "start_url": "./",
   "display": "standalone",
   "background_color": "#0E0E10",

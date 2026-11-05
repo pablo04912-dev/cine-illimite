@@ -269,7 +269,7 @@ function renderCompte() {
   q('code-share').onclick = async () => {
     const url = location.origin + location.pathname;
     if (!p?.code) return;
-    const text = `Ajoute-moi sur Ciné Illimité : mon code ami est ${p.code}\n${url}`;
+    const text = `Ajoute-moi sur Projo : mon code ami est ${p.code}\n${url}`;
     try { if (navigator.share) { await navigator.share({ text }); return; } } catch (e) { if (e?.name === 'AbortError') return; }
     try { await navigator.clipboard.writeText(text); toast('Code copié'); } catch { toast('Ton code : ' + p.code); }
   };

@@ -1,6 +1,6 @@
 'use strict';
 // Numéro de version : doit être égal au ?v= de app.js dans index.html (à augmenter à chaque mise à jour)
-const APP_VERSION = 13;
+const APP_VERSION = 14;
 
 // ================= état =================
 const DEFAULT_POS = { lat: 48.8396, lng: 2.3958, label: 'Paris 12e' };
@@ -258,11 +258,11 @@ function renderSeances() {
   $('#seances-grid').className = 'pad ' + (S.sv === 'classics' ? 'classics' : 'grid');
   if (S.sv === 'classics') {
     const now = new Date();
-    $('#now-label').textContent = now.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'short' });
+    $('#now-label').textContent = 'Près de toi · ' + now.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'short' });
     renderClassics(); return;
   }
   const now = new Date();
-  $('#now-label').textContent = now.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'short' }) + ' · ' + now.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+  $('#now-label').textContent = 'Près de toi · ' + now.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'short' }) + ' · ' + now.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
   const groups = groupByFilm(filtered());
   const shown = groups.slice(0, S.limit);
   $('#count-label').textContent = `${groups.length} film${groups.length > 1 ? 's' : ''} · salles qui acceptent ta carte UGC Illimité`;
@@ -510,7 +510,7 @@ async function backupData() {
   const file = new File([JSON.stringify(data)], name, { type: 'application/json' });
   try {
     if (navigator.canShare && navigator.canShare({ files: [file] })) {
-      await navigator.share({ files: [file], title: 'Sauvegarde Ciné Illimité' });
+      await navigator.share({ files: [file], title: 'Sauvegarde Projo' });
       toast('Sauvegarde prête : garde-la dans Fichiers ou envoie-la-toi');
       return;
     }
