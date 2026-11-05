@@ -470,16 +470,58 @@ function renderCarte() {
       <small style="color:var(--mut)">Tarifs indicatifs : vérifie le montant exact dans ton espace UGC.</small>
     </div>
     <div class="card form">
+      <h2>Sauvegarde</h2>
+      <small style="color:var(--mut);line-height:1.5">Ta liste, ton historique, tes notes et tes réglages sont rangés sur ce téléphone. Fais une sauvegarde avant de changer d'iPhone, puis « Restaurer » sur le nouveau.</small>
+      <div class="row-actions">
+        <button class="btn pri" id="backup">Sauvegarder mes données</button>
+        <label class="btn" for="restore-file" style="cursor:pointer">Restaurer</label>
+        <input type="file" id="restore-file" accept=".json,application/json" hidden>
+      </div>
+    </div>
+    <div class="card form">
       <h2>Apparence</h2>
       <div class="seg" role="group" aria-label="Thème">
         <button data-theme-set="light" aria-pressed="${S.theme === 'light'}">Clair</button>
         <button data-theme-set="dark" aria-pressed="${S.theme === 'dark'}">Sombre</button>
       </div>
     </div>`;
+  $('#backup').onclick = backupData;
+  $('#restore-file').onchange = (e) => { const f = e.target.files[0]; if (f) restoreData(f); };
   const save = () => { store.set('carte', S.carte); renderCarte(); };
   $('#c-formule').onchange = (e) => { S.carte.formule = e.target.value; const p = FORMULES[e.target.value].prix; if (p) S.carte.prix = p; save(); };
   $('#c-prix').onchange = (e) => { S.carte.prix = num(e.target.value) || 0; S.carte.formule = 'autre'; save(); };
   $('#c-plein').onchange = (e) => { S.carte.plein = num(e.target.value) || 0; save(); };
+}
+// ================= sauvegarde / restauration =================
+const BACKUP_KEYS = ['liste', 'vus2', 'carte', 'theme', 'pins', 'fromTime', 'geoOk'];
+async function backupData() {
+  const data = { app: 'cine-illimite', version: 1, date: new Date().toISOString(), items: {} };
+  for (const k of BACKUP_KEYS) { const v = store.get(k, undefined); if (v !== undefined) data.items[k] = v; }
+  const name = `cine-sauvegarde-${today()}.json`;
+  const file = new File([JSON.stringify(data)], name, { type: 'application/json' });
+  try {
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      await navigator.share({ files: [file], title: 'Sauvegarde Ciné Illimité' });
+      toast('Sauvegarde prête : garde-la dans Fichiers ou envoie-la-toi');
+      return;
+    }
+  } catch (e) { if (e && e.name === 'AbortError') return; }
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(file); a.download = name; a.click();
+  toast('Sauvegarde téléchargée');
+}
+function restoreData(file) {
+  const r = new FileReader();
+  r.onload = () => {
+    try {
+      const d = JSON.parse(r.result);
+      if (d.app !== 'cine-illimite' || !d.items) throw new Error();
+      if (!confirm(`Restaurer la sauvegarde du ${new Date(d.date).toLocaleDateString('fr-FR')} ? Les données actuelles de ce téléphone seront remplacées.`)) return;
+      for (const [k, v] of Object.entries(d.items)) if (BACKUP_KEYS.includes(k)) store.set(k, v);
+      location.reload();
+    } catch { toast("Ce fichier n'est pas une sauvegarde de l'appli"); }
+  };
+  r.readAsText(file);
 }
 function applyTheme() {
   document.documentElement.dataset.theme = S.theme;
