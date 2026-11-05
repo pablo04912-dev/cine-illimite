@@ -166,10 +166,13 @@ async function startSync(u) {
       const d = s.data();
       if (d.dev === DEVICE) return;
       applyItems(d.items || {});
+      saveProfile().catch(() => {});
+      if (d.dev === 'letterboxd') { toast('Letterboxd synchronisé'); loadLb(); }
     });
     C.ready = true;
     renderCompte();
     loadFriends();
+    loadLb();
   } catch (e) {
     console.warn(e);
     toast('Synchro impossible pour le moment');
@@ -265,6 +268,7 @@ function renderCompte() {
       <button class="btn sm" id="logout">Déconnexion</button>
     </div>
     ${pushCardHtml()}
+    ${lbCardHtml()}
     <div class="card form">
       <h2>Amis</h2>
       ${friends || '<small style="color:var(--mut);line-height:1.5">Ajoute ton frère ou tes potes : tu verras les films qu\'ils ont vus, leurs notes, leurs avis et ce qu\'ils te conseillent.</small>'}
@@ -405,3 +409,98 @@ document.addEventListener('click', (e) => {
 });
 pushState().then((s) => { C.push = s; renderCompte(); });
 renderCompte();
+
+// ---------- Letterboxd ----------
+C.lb = null; // { user, lastSync, added, error }
+async function loadLb() {
+  if (!C.user) return;
+  try { const s = await getDoc(doc(db, 'lbsync', C.user.uid)); C.lb = s.exists() ? s.data() : {}; } catch { C.lb = {}; }
+  renderCompte();
+}
+function lbCardHtml() {
+  const lb = C.lb || {};
+  const last = lb.lastSync ? new Date(lb.lastSync).toLocaleString('fr-FR', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : null;
+  const pending = lb.req && (!lb.lastSync || lb.req > lb.lastSync);
+  return `<div class="card form">
+    <h2>Letterboxd</h2>
+    <small style="color:var(--mut);line-height:1.5">Tes films vus sur Letterboxd (notes et critiques) arrivent dans ton historique, puis se mettent à jour tout seuls toutes les 3 h.</small>
+    <label>Ton pseudo Letterboxd <input id="lb-user" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="ex. pablo04912" value="${esc(lb.user || '')}"></label>
+    <button class="btn pri" id="lb-sync">Synchroniser Letterboxd</button>
+    <small style="color:var(--mut)">${pending ? '⏳ Synchro en cours : tes films arrivent d\'ici quelques minutes.' : last ? `Dernière synchro : ${last}${lb.error ? ' · ⚠ ' + esc(lb.error) : ''}` : ''}</small>
+    <details class="lb-more"><summary>Récupérer tout ton historique</summary>
+      <small style="color:var(--mut);line-height:1.5">La synchro ne voit que tes 50 derniers films. Pour tout récupérer : sur letterboxd.com, Settings › Import &amp; Export › Export Your Data. Tu reçois un fichier .zip : choisis-le ici.</small>
+      <label class="btn" for="lb-file" style="cursor:pointer;align-self:flex-start">Choisir le fichier Letterboxd (.zip)</label>
+      <input type="file" id="lb-file" accept=".zip,.csv,application/zip,text/csv" hidden>
+    </details>
+  </div>`;
+}
+// lecture CSV (guillemets, virgules et retours à la ligne dans les critiques)
+function parseCsv(text) {
+  const rows = []; let row = []; let cell = ''; let q = false;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (q) { if (ch === '"') { if (text[i + 1] === '"') { cell += '"'; i++; } else q = false; } else cell += ch; }
+    else if (ch === '"') q = true;
+    else if (ch === ',') { row.push(cell); cell = ''; }
+    else if (ch === '\n' || ch === '\r') { if (ch === '\r' && text[i + 1] === '\n') i++; row.push(cell); rows.push(row); row = []; cell = ''; }
+    else cell += ch;
+  }
+  if (cell || row.length) { row.push(cell); rows.push(row); }
+  const [head, ...body] = rows.filter((r) => r.length > 1);
+  return (body || []).map((r) => Object.fromEntries((head || []).map((h, i) => [h.trim(), r[i] ?? ''])));
+}
+const nrm = (s) => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+async function importLetterboxd(file) {
+  toast('Lecture du fichier…');
+  const files = {};
+  if (/\.zip$/i.test(file.name) || file.type.includes('zip')) {
+    const { default: JSZip } = await import('https://cdn.jsdelivr.net/npm/jszip@3.10.1/+esm');
+    const zip = await JSZip.loadAsync(file);
+    for (const name of ['diary.csv', 'reviews.csv', 'ratings.csv', 'watched.csv']) {
+      const f = Object.values(zip.files).find((z) => z.name.split('/').pop() === name);
+      if (f) files[name] = parseCsv(await f.async('string'));
+    }
+  } else files[file.name.split('/').pop()] = parseCsv(await file.text());
+  const diary = files['diary.csv'] || [];
+  if (!diary.length && !files['watched.csv']) { toast('Fichier non reconnu : prends le .zip exporté par Letterboxd'); return; }
+  const k2 = (r) => nrm(r.Name) + '|' + (r.Year || '');
+  const ratings = new Map((files['ratings.csv'] || []).map((r) => [k2(r), Number(r.Rating) || 0]));
+  const reviews = new Map((files['reviews.csv'] || []).map((r) => [k2(r) + '|' + (r['Watched Date'] || r.Date), r.Review || '']));
+  const films = Object.entries(S.data?.films || {});
+  const match = (name) => films.find(([, f]) => nrm(f.title) === nrm(name));
+  const have = new Set(S.vus.map((v) => nrm(v.title) + '|' + v.date));
+  const haveTitle = new Set(S.vus.map((v) => nrm(v.title)));
+  let n = 0;
+  const push = (r, date, rating, review) => {
+    if (!r.Name || !date) return;
+    const key = nrm(r.Name) + '|' + date;
+    if (have.has(key)) return;
+    const m = match(r.Name);
+    S.vus.push({ f: m ? m[0] : 'lb:' + nrm(r.Name), title: r.Name, year: Number(r.Year) || null, poster: m ? m[1].poster || '' : '', date, rating: rating || 0, review: (review || '').slice(0, 2000), lb: r['Letterboxd URI'] || '' });
+    have.add(key); haveTitle.add(nrm(r.Name)); n++;
+  };
+  for (const r of diary) {
+    const date = r['Watched Date'] || r.Date;
+    push(r, date, Number(r.Rating) || ratings.get(k2(r)), reviews.get(k2(r) + '|' + date));
+  }
+  // films marqués « vus » sans date dans le journal : on garde la date où ils ont été ajoutés
+  for (const r of files['watched.csv'] || []) if (!haveTitle.has(nrm(r.Name))) push(r, r.Date, ratings.get(k2(r)), '');
+  S.vus.sort((a, b) => a.date.localeCompare(b.date));
+  store.set('vus2', S.vus);
+  if (C.user) await setDoc(doc(db, 'lbsync', C.user.uid), { needPosters: true }, { merge: true });
+  buildTaste(); renderHisto(); renderCarte();
+  toast(n ? `${n} film${n > 1 ? 's' : ''} ajouté${n > 1 ? 's' : ''} à ton historique (affiches dans quelques minutes)` : 'Rien de nouveau : tout était déjà là');
+}
+document.addEventListener('click', async (e) => {
+  if (!e.target.closest('#lb-sync')) return;
+  const user = ($('#lb-user')?.value || '').trim().replace(/^@/, '').replace(/^https?:\/\/(www\.)?letterboxd\.com\//, '').replace(/\/.*$/, '');
+  if (!user) { toast('Écris ton pseudo Letterboxd'); return; }
+  if (!C.user) { toast('Connecte-toi d\'abord avec Google'); return; }
+  await setDoc(doc(db, 'lbsync', C.user.uid), { user, req: Date.now() }, { merge: true });
+  C.lb = { ...(C.lb || {}), user, req: Date.now() };
+  renderCompte();
+  toast('Synchro lancée : tes films arrivent d\'ici quelques minutes');
+});
+document.addEventListener('change', (e) => {
+  if (e.target.id === 'lb-file' && e.target.files[0]) importLetterboxd(e.target.files[0]).catch((err) => { console.warn(err); toast('Import impossible'); });
+});

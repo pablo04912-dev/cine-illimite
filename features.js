@@ -191,7 +191,7 @@ function renderHero() {
   }
   // 2. ma liste : prochaine séance de chaque film
   const liste = [...S.liste].map((id) => ({ id, f: S.data.films[id], n: upcomingNear(id, Math.max(S.radius, 5)) || upcomingNear(id, 50) }))
-    .filter((x) => x.f && x.n).sort((a, b) => a.n.t.localeCompare(b.n.t)).slice(0, 4);
+    .filter((x) => x.f && x.n).sort((a, b) => a.n.t.localeCompare(b.n.t)).slice(0, 3);
   if (liste.length) slides.push(`<div class="hcard hslide"><span class="hk">Ma liste</span>${liste.map((x) => heroRow(x.n, x.f, `${quand(x.n.t)} · ${esc(shortName(cinema(x.n.c)))}`)).join('')}</div>`);
   // 3. dernières chances (films de ta liste qui partent)
   const urgent = (window.computeAlerts?.() || []).filter((a) => a.urgent).slice(0, 3);
@@ -202,7 +202,7 @@ function renderHero() {
   const evs = S.data.seances.filter((s) => (s.p || s.ev) && cinema(s.c) && asDate(s.t).getTime() > nowMs && asDate(s.t).getTime() < until)
     .sort((a, b) => (b.ev ? 1 : 0) - (a.ev ? 1 : 0) || a.t.localeCompare(b.t))
     .filter((s) => { const k = s.f + (s.ev || ''); if (seen.has(k)) return false; seen.add(k); return true; })
-    .slice(0, 4).sort((a, b) => a.t.localeCompare(b.t));
+    .slice(0, 3).sort((a, b) => a.t.localeCompare(b.t));
   if (evs.length) slides.push(`<div class="hcard hslide"><span class="hk">Avant-premières &amp; événements</span>${evs.map((s) => heroRow(s, S.data.films[s.f], `${s.ev ? esc(s.ev.slice(0, 60)) : 'Avant-première'} · ${quand(s.t)} · ${esc(shortName(cinema(s.c)))}`)).join('')}</div>`);
   if (!slides.length) { wrap.hidden = true; return; }
   const html = slides.join('');

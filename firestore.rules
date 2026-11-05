@@ -30,6 +30,11 @@ service cloud.firestore {
       allow read, write: if isMe(uid);
     }
 
+    // Pseudo Letterboxd et état de la synchro : seulement toi (le serveur met à jour l'état)
+    match /lbsync/{uid} {
+      allow read, write: if isMe(uid);
+    }
+
     // Demandes d'ami : A prévient B qu'il l'a ajouté
     match /invites/{to}/from/{from} {
       allow create: if isMe(from);

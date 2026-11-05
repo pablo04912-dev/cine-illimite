@@ -1,6 +1,6 @@
 'use strict';
 // Numéro de version : doit être égal au ?v= de app.js dans index.html (à augmenter à chaque mise à jour)
-const APP_VERSION = 25;
+const APP_VERSION = 26;
 
 // ================= état =================
 const DEFAULT_POS = { lat: 48.8396, lng: 2.3958, label: 'Paris 12e' };
@@ -966,7 +966,16 @@ $('#radius').addEventListener('change', (e) => { S.radius = +e.target.value; S.l
 $('#btn-locate').addEventListener('click', () => locate(false));
 $('#q').addEventListener('input', () => { if (S.data) renderSearch(); });
 $('#q').addEventListener('focus', () => { if (S.data) renderSearch(); });
-$('#q').addEventListener('keydown', (e) => { if (e.key === 'Escape') { $('#q').value = ''; closeSearch(); } });
+$('#q').addEventListener('keydown', (e) => { if (e.key === 'Escape') { $('#q').value = ''; closeSearch(); toggleSearch(false); } });
+// la recherche est cachée derrière la loupe en haut à gauche
+function toggleSearch(open) {
+  const box = $('#search-box'); const btn = $('#search-btn');
+  const show = open ?? box.hidden;
+  box.hidden = !show; btn.setAttribute('aria-expanded', String(show)); btn.classList.toggle('on', show);
+  if (show) { $('#q').focus(); } else { $('#q').value = ''; closeSearch(); }
+}
+$('#search-btn').addEventListener('click', () => toggleSearch());
+$('#q').addEventListener('blur', () => setTimeout(() => { if (!$('#q').value && document.activeElement !== $('#q') && $('#q-results').hidden) toggleSearch(false); }, 200));
 document.querySelectorAll('.tabs button').forEach((b) => b.addEventListener('click', () => {
   document.querySelectorAll('.tabs button').forEach((x) => x.classList.toggle('on', x === b));
   document.querySelectorAll('.view').forEach((v) => v.classList.toggle('active', v.id === 'view-' + b.dataset.v));

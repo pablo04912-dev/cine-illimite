@@ -25,6 +25,11 @@ jobs:
           key: npm-push-v1
       - run: npm install --no-save --no-package-lock firebase-admin@12 web-push@3
       - run: node scripts/push.mjs
+        continue-on-error: true
         env:
           FIREBASE_SA: ${{ secrets.FIREBASE_SA }}
           VAPID_PRIVATE: ${{ secrets.VAPID_PRIVATE }}
+      - run: node scripts/letterboxd.mjs
+        env:
+          FIREBASE_SA: ${{ secrets.FIREBASE_SA }}
+          TMDB_TOKEN: ${{ secrets.TMDB_TOKEN }}

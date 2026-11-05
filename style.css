@@ -399,3 +399,19 @@ button.act{border:none;font:inherit;cursor:pointer}
 .hero-dots i.on{width:18px;border-radius:999px;background:var(--ink)}
 .more-chips{margin-top:8px}
 .more-chip{border-style:dashed!important}
+
+/* loupe en haut à gauche, carrousel plus compact */
+.bell.sbtn{right:auto;left:16px}
+.bell.on{background:var(--dark);color:var(--acc);border-color:var(--dark)}
+.hslide{min-height:0}
+.hero-car .feature{min-height:150px;max-height:170px}
+.hero-car .feature .in{padding:14px;gap:5px}
+.hero-car .feature .bt{font-size:26px}
+.hero-car .feature .img{width:34%}
+.hcard{padding:12px 14px;gap:8px}
+.hrow i{width:28px;height:40px}
+.hero-dots{margin-top:8px}
+
+.lb-more{display:flex;flex-direction:column;gap:8px}
+.lb-more summary{font-size:13px;font-weight:600;cursor:pointer;margin-bottom:6px}
+.lb-more[open]{display:flex}
