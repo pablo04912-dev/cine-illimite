@@ -1,6 +1,6 @@
 'use strict';
 // Numéro de version : doit être égal au ?v= de app.js dans index.html (à augmenter à chaque mise à jour)
-const APP_VERSION = 20;
+const APP_VERSION = 21;
 
 // ================= état =================
 const DEFAULT_POS = { lat: 48.8396, lng: 2.3958, label: 'Paris 12e' };
@@ -156,9 +156,21 @@ function groupByFilm(list) {
 // ================= liens pratiques : itinéraire, agenda =================
 const cineAddr = (c) => c.addr || `${c.name}, ${c.cp} Paris`;
 const mapsUrl = (c) => `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(c.name + ', ' + cineAddr(c))}`;
+// pubs + bandes-annonces avant le film : estimation par type de salle (aucune source ne donne le chiffre exact)
+function adMin(c) {
+  if (!c) return 10;
+  if (c.ads != null) return c.ads;
+  const n = c.name;
+  if (/^UGC/.test(n)) return 15;
+  if (/Grand Rex/.test(n)) return 15;
+  if (/^MK2/.test(n)) return 10;
+  if (/Forum des images|Jeu de Paume/.test(n)) return 0;
+  return 5; // salles indé et cinémas de patrimoine : 1 ou 2 bandes-annonces
+}
+function filmStart(s) { return new Date(asDate(s.t).getTime() + adMin(cinema(s.c)) * 60000); }
 function endOf(s) {
   const f = S.data.films[s.f];
-  return new Date(asDate(s.t).getTime() + (15 + runtimeMin(f.runtime)) * 60000);
+  return new Date(filmStart(s).getTime() + runtimeMin(f.runtime) * 60000);
 }
 const gstamp = (d) => {
   const p = (n) => String(n).padStart(2, '0');
@@ -579,6 +591,7 @@ function openFilm(id, day) {
         <span class="pick-hour">${hm(s.t)}</span>
         <span class="pick-day"><b>${dl}</b><small>${s.v}${s.x ? ' · ' + esc(s.x) : ''} · fin vers ${fin}</small></span>
       </div>
+      <p class="ads">${adMin(c) ? `+${adMin(c)} min de pub · film vers ${filmStart(s).toTimeString().slice(0, 5).replace(':', 'h')}` : 'Pas de pub · le film démarre à l\'heure'}<small>estimation</small></p>
       <ul class="pick-info">
         ${scr && scr.name ? `<li><small>Salle</small><b>${esc(scr.name)}</b></li>` : ''}
         ${scr && scr.seats ? `<li><small>Places</small><b>${scr.seats}</b></li>` : ''}

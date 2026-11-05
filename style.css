@@ -349,3 +349,6 @@ html,body{touch-action:pan-x pan-y}
 .alert-pop i{width:40px;height:58px;border-radius:8px;background:#2A2A30 center/cover no-repeat;flex-shrink:0}
 .alert-pop .fi small{color:var(--acc)}
 .alert-pop .x{color:var(--dark-mut);padding:6px}
+
+.ads{margin:0;align-self:flex-start;display:inline-flex;align-items:center;gap:8px;padding:6px 12px;border-radius:999px;background:rgba(224,49,49,.16);color:#FF6B6B;font-size:13px;font-weight:700}
+.ads small{font-size:10px;font-weight:600;opacity:.7;text-transform:uppercase;letter-spacing:.06em}
