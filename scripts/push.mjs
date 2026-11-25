@@ -4,7 +4,7 @@ import webpush from 'web-push';
 import { readFile } from 'node:fs/promises';
 
 const VAPID_PUBLIC = 'BEXcRTvtcAJRRnsstdM6ze0jiAlpyMeEJG_ei2y8gw0EXTUBVbgTZHRAtGSobU62gDDyTbhziX5OLOZPIX36uYE';
-const SITE = 'https://pablo04912-dev.github.io/cine-illimite/';
+const SITE = 'https://projo-cine.github.io/';
 admin.initializeApp({ credential: admin.credential.cert(JSON.parse(process.env.FIREBASE_SA)) });
 const db = admin.firestore();
 webpush.setVapidDetails(SITE, VAPID_PUBLIC, process.env.VAPID_PRIVATE);

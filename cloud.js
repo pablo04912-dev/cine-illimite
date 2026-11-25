@@ -8,11 +8,11 @@ import {
   getFirestore, doc, getDoc, setDoc, onSnapshot, collection, getDocs, deleteDoc
 } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js';
 
-const ONLINE = location.hostname === 'pablo04912-dev.github.io';
+const ONLINE = location.hostname.endsWith('.github.io');
 const app = initializeApp({
   apiKey: 'AIzaSyDNhUKhhoPq4yLlx-hx6xb_cpB5cS36jrw',
   // sur le site : les pages de connexion sont servies par le même domaine (indispensable sur iPhone)
-  authDomain: ONLINE ? 'pablo04912-dev.github.io' : 'cine-illimite.firebaseapp.com',
+  authDomain: ONLINE ? location.hostname : 'cine-illimite.firebaseapp.com',
   projectId: 'cine-illimite',
   storageBucket: 'cine-illimite.firebasestorage.app',
   messagingSenderId: '270244100635',
@@ -424,7 +424,7 @@ function lbCardHtml() {
   return `<div class="card form">
     <h2>Letterboxd</h2>
     <small style="color:var(--mut);line-height:1.5">Tes films vus sur Letterboxd (notes et critiques) arrivent dans ton historique, puis se mettent à jour tout seuls toutes les 3 h.</small>
-    <label>Ton pseudo Letterboxd <input id="lb-user" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="ex. pablo04912" value="${esc(lb.user || '')}"></label>
+    <label>Ton pseudo Letterboxd <input id="lb-user" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="ex. jeremy_ruiz" value="${esc(lb.user || '')}"></label>
     <button class="btn pri" id="lb-sync">Synchroniser Letterboxd</button>
     <small style="color:var(--mut)">${pending ? '⏳ Synchro en cours : tes films arrivent d\'ici quelques minutes.' : last ? `Dernière synchro : ${last}${lb.error ? ' · ⚠ ' + esc(lb.error) : ''}` : ''}</small>
     <details class="lb-more"><summary>Récupérer tout ton historique</summary>
